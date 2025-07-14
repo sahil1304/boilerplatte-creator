@@ -35,8 +35,10 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
   bool isCloning = false;
   bool isLoading = false;
 
-  // Controllers for text input
-  final TextEditingController _repoUrlController = TextEditingController();
+  // Hardcoded repository URL
+  static const String repoUrl = "https://github.com/SahilJadhav12/mergingdemo.git";
+
+  // Controller for folder name input
   final TextEditingController _folderNameController = TextEditingController();
 
   List<String> localBranches = [];
@@ -49,7 +51,6 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
 
   @override
   void dispose() {
-    _repoUrlController.dispose();
     _folderNameController.dispose();
     super.dispose();
   }
@@ -83,19 +84,12 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
   }
 
   Future<void> cloneRepository() async {
-    if (_repoUrlController.text.trim().isEmpty) {
-      setState(() {
-        result = 'Please enter a repository URL.\n';
-      });
-      return;
-    }
-
     String? selectedDir = await FilePicker.platform.getDirectoryPath();
     if (selectedDir == null) return;
 
     setState(() {
       isCloning = true;
-      result = 'Cloning repository...\n';
+      result = 'Cloning repository from: $repoUrl\n';
       localBranches = [];
       remoteBranches = [];
       allBranches = [];
@@ -118,7 +112,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
       String folderName = _folderNameController.text.trim();
       if (folderName.isEmpty) {
         // Extract folder name from URL
-        final uri = Uri.parse(_repoUrlController.text.trim());
+        final uri = Uri.parse(repoUrl);
         folderName = p.basenameWithoutExtension(uri.path);
       }
 
@@ -139,7 +133,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
       });
 
       // Clone the repository
-      final cloneResult = await runGit(['clone', _repoUrlController.text.trim(), targetPath], selectedDir);
+      final cloneResult = await runGit(['clone', repoUrl, targetPath], selectedDir);
 
       if (cloneResult.contains('Error:')) {
         setState(() {
@@ -422,14 +416,30 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                     children: [
                       const Text('Clone Repository', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                       const SizedBox(height: 10),
-                      TextField(
-                        controller: _repoUrlController,
-                        decoration: const InputDecoration(
-                          labelText: 'Repository URL',
-                          hintText: 'https://github.com/user/repo.git',
-                          border: OutlineInputBorder(),
-                        ),
-                      ),
+                      // Display the hardcoded repository URL
+                      // Container(
+                      //   padding: const EdgeInsets.all(12),
+                      //   decoration: BoxDecoration(
+                      //     color: Colors.grey[100],
+                      //     borderRadius: BorderRadius.circular(4),
+                      //     border: Border.all(color: Colors.grey[300]!),
+                      //   ),
+                      //   child: Row(
+                      //     children: [
+                      //       const Icon(Icons.link, color: Colors.blue),
+                      //       const SizedBox(width: 8),
+                      //       Expanded(
+                      //         child: Text(
+                      //           repoUrl,
+                      //           style: const TextStyle(
+                      //             fontFamily: 'monospace',
+                      //             fontSize: 12,
+                      //           ),
+                      //         ),
+                      //       ),
+                      //     ],
+                      //   ),
+                      // ),
                       const SizedBox(height: 10),
                       TextField(
                         controller: _folderNameController,
@@ -451,20 +461,20 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
                                 : const Icon(Icons.cloud_download),
-                            label: Text(isCloning ? 'Cloning...' : 'Clone Repository'),
+                            label: Text(isCloning ? 'Cloning...' : 'Create Project'),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.blue,
                               foregroundColor: Colors.white,
                             ),
                           ),
-                          const SizedBox(width: 10),
-                          const Text('OR'),
-                          const SizedBox(width: 10),
-                          ElevatedButton.icon(
-                            onPressed: pickFolderAndReadRepo,
-                            icon: const Icon(Icons.folder_open),
-                            label: const Text('Select Existing Repo'),
-                          ),
+                          // const SizedBox(width: 10),
+                          // const Text('OR'),
+                          // const SizedBox(width: 10),
+                          // ElevatedButton.icon(
+                          //   onPressed: pickFolderAndReadRepo,
+                          //   icon: const Icon(Icons.folder_open),
+                          //   label: const Text('Select Existing Repo'),
+                          // ),
                         ],
                       ),
                     ],
@@ -483,7 +493,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                       children: [
                         Row(
                           children: [
-                            const Text('Branch Merge', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                            const Text('List of widgets', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                             const Spacer(),
                             ElevatedButton.icon(
                               onPressed: isLoading ? null : loadBranches,
@@ -494,7 +504,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                                 child: CircularProgressIndicator(strokeWidth: 2),
                               )
                                   : const Icon(Icons.refresh),
-                              label: const Text('Refresh Branches'),
+                              label: const Text('Refresh'),
                             ),
                           ],
                         ),
@@ -513,8 +523,8 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    const Text('Source Branches:', style: TextStyle(fontWeight: FontWeight.bold)),
-                                    const SizedBox(height: 8),
+                                    // const Text('Source Branches:', style: TextStyle(fontWeight: FontWeight.bold)),
+                                    // const SizedBox(height: 8),
                                     Container(
                                       height: 200,
                                       decoration: BoxDecoration(
@@ -606,7 +616,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                                   child: CircularProgressIndicator(strokeWidth: 2),
                                 )
                                     : const Icon(Icons.merge_type),
-                                label: const Text('Merge Selected Branches'),
+                                label: const Text('Apply in project'),
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: Colors.green,
                                   foregroundColor: Colors.white,
