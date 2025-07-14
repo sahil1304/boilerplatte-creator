@@ -32,19 +32,27 @@ class RepoReaderScreen extends StatefulWidget {
 class _RepoReaderScreenState extends State<RepoReaderScreen> {
   String? folderPath;
   String result = '';
+  bool isCloning = false;
+  bool isLoading = false;
+
+  // Controllers for text input
+  final TextEditingController _repoUrlController = TextEditingController();
+  final TextEditingController _folderNameController = TextEditingController();
 
   List<String> localBranches = [];
   List<String> remoteBranches = [];
   List<String> allBranches = []; // Combined list for merge operations
 
-  // For branch creation
-  String? selectedLocalBranch;
-  String? selectedRemoteBranch;
-  String newBranchName = '';
-
-  // For merge operations - changed to support multiple source branches
+  // For merge operations
   Set<String> selectedSourceBranches = <String>{};
   String? destinationBranch;
+
+  @override
+  void dispose() {
+    _repoUrlController.dispose();
+    _folderNameController.dispose();
+    super.dispose();
+  }
 
   // Find Git executable in common locations
   Future<String?> findGitExecutable() async {
@@ -72,6 +80,90 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
     }
 
     return null;
+  }
+
+  Future<void> cloneRepository() async {
+    if (_repoUrlController.text.trim().isEmpty) {
+      setState(() {
+        result = 'Please enter a repository URL.\n';
+      });
+      return;
+    }
+
+    String? selectedDir = await FilePicker.platform.getDirectoryPath();
+    if (selectedDir == null) return;
+
+    setState(() {
+      isCloning = true;
+      result = 'Cloning repository...\n';
+      localBranches = [];
+      remoteBranches = [];
+      allBranches = [];
+      selectedSourceBranches.clear();
+      destinationBranch = null;
+    });
+
+    // Check Git availability
+    final gitPath = await findGitExecutable();
+    if (gitPath == null) {
+      setState(() {
+        result += 'Git executable not found. Please install Git.';
+        isCloning = false;
+      });
+      return;
+    }
+
+    try {
+      // Determine folder name
+      String folderName = _folderNameController.text.trim();
+      if (folderName.isEmpty) {
+        // Extract folder name from URL
+        final uri = Uri.parse(_repoUrlController.text.trim());
+        folderName = p.basenameWithoutExtension(uri.path);
+      }
+
+      final targetPath = p.join(selectedDir, folderName);
+
+      // Check if folder already exists
+      final targetDir = Directory(targetPath);
+      if (await targetDir.exists()) {
+        setState(() {
+          result += 'Error: Folder "$folderName" already exists in the selected directory.\n';
+          isCloning = false;
+        });
+        return;
+      }
+
+      setState(() {
+        result += 'Cloning to: $targetPath\n';
+      });
+
+      // Clone the repository
+      final cloneResult = await runGit(['clone', _repoUrlController.text.trim(), targetPath], selectedDir);
+
+      if (cloneResult.contains('Error:')) {
+        setState(() {
+          result += 'Clone failed: $cloneResult\n';
+          isCloning = false;
+        });
+        return;
+      }
+
+      setState(() {
+        result += 'Clone successful!\n$cloneResult\n';
+        folderPath = targetPath;
+        isCloning = false;
+      });
+
+      // Load branches after successful clone
+      await loadBranches();
+
+    } catch (e) {
+      setState(() {
+        result += 'Clone failed with error: $e\n';
+        isCloning = false;
+      });
+    }
   }
 
   Future<void> pickFolderAndReadRepo() async {
@@ -134,54 +226,67 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
 
     setState(() {
       result += '\n--- Loading Branches ---\n';
+      isLoading = true;
     });
 
-    // Load local branches
-    var localResult = await runGit(['branch', '--list'], folderPath!);
-    print('Local Branches Raw Output:\n$localResult');
+    try {
+      // First, fetch all branches from remote
+      await runGit(['fetch', '--all'], folderPath!);
 
-    // Load remote branches
-    var remoteResult = await runGit(['branch', '-r', '--list'], folderPath!);
-    print('Remote Branches Raw Output:\n$remoteResult');
+      // Load local branches
+      var localResult = await runGit(['branch', '--list'], folderPath!);
+      print('Local Branches Raw Output:\n$localResult');
 
-    // Load all branches (including remote tracking)
-    var allBranchesResult = await runGit(['branch', '-a', '--list'], folderPath!);
-    print('All Branches Raw Output:\n$allBranchesResult');
+      // Load remote branches
+      var remoteResult = await runGit(['branch', '-r', '--list'], folderPath!);
+      print('Remote Branches Raw Output:\n$remoteResult');
 
-    setState(() {
-      // Process local branches
-      localBranches = localResult
-          .split('\n')
-          .map((line) => line.replaceAll('*', '').trim())
-          .where((line) => line.isNotEmpty && !line.startsWith('remotes/'))
-          .toList();
+      // Load all branches (including remote tracking)
+      var allBranchesResult = await runGit(['branch', '-a', '--list'], folderPath!);
+      print('All Branches Raw Output:\n$allBranchesResult');
 
-      // Process remote branches
-      remoteBranches = remoteResult
-          .split('\n')
-          .map((line) => line.trim())
-          .where((line) => line.isNotEmpty && !line.contains('->'))
-          .map((line) => line.replaceAll('origin/', ''))
-          .toList();
+      setState(() {
+        // Process local branches
+        localBranches = localResult
+            .split('\n')
+            .map((line) => line.replaceAll('*', '').trim())
+            .where((line) => line.isNotEmpty && !line.startsWith('remotes/'))
+            .toList();
 
-      // Create combined list for merge operations
-      allBranches = [...localBranches];
-      for (String remoteBranch in remoteBranches) {
-        if (!allBranches.contains(remoteBranch)) {
-          allBranches.add('origin/$remoteBranch');
+        // Process remote branches
+        remoteBranches = remoteResult
+            .split('\n')
+            .map((line) => line.trim())
+            .where((line) => line.isNotEmpty && !line.contains('->'))
+            .map((line) => line.replaceAll('origin/', ''))
+            .toList();
+
+        // Create combined list for merge operations
+        allBranches = [...localBranches];
+        for (String remoteBranch in remoteBranches) {
+          if (!allBranches.contains(remoteBranch)) {
+            allBranches.add('origin/$remoteBranch');
+          }
         }
-      }
 
-      result += 'Local branches: ${localBranches.join(', ')}\n';
-      result += 'Remote branches: ${remoteBranches.join(', ')}\n';
-      result += 'All branches for merge: ${allBranches.join(', ')}\n';
+        result += 'Local branches: ${localBranches.join(', ')}\n';
+        result += 'Remote branches: ${remoteBranches.join(', ')}\n';
+        result += 'All branches available: ${allBranches.join(', ')}\n';
 
-      // Clear invalid selections
-      selectedSourceBranches.removeWhere((branch) => !allBranches.contains(branch));
-      if (destinationBranch != null && !allBranches.contains(destinationBranch!)) {
-        destinationBranch = null;
-      }
-    });
+        // Clear invalid selections
+        selectedSourceBranches.removeWhere((branch) => !allBranches.contains(branch));
+        if (destinationBranch != null && !allBranches.contains(destinationBranch!)) {
+          destinationBranch = null;
+        }
+
+        isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        result += 'Error loading branches: $e\n';
+        isLoading = false;
+      });
+    }
   }
 
   Future<String> runGit(List<String> args, String workingDir) async {
@@ -217,50 +322,6 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
     }
   }
 
-  Future<void> createNewBranch() async {
-    if (folderPath == null || newBranchName.trim().isEmpty) return;
-
-    String fromBranch = selectedLocalBranch ?? selectedRemoteBranch ?? '';
-
-    if (fromBranch.isEmpty) {
-      setState(() {
-        result += '\nPlease select a base branch.';
-      });
-      return;
-    }
-
-    setState(() {
-      result += '\n--- Creating Branch ---\n';
-    });
-
-    // If it's a remote branch, we need to track it
-    if (selectedRemoteBranch != null) {
-      // First, fetch the latest from remote
-      await runGit(['fetch', 'origin'], folderPath!);
-
-      // Create a new branch tracking the remote branch
-      final output = await runGit(['checkout', '-b', newBranchName, 'origin/$selectedRemoteBranch'], folderPath!);
-      setState(() {
-        result += output;
-      });
-    } else {
-      // Checkout the base branch first
-      await runGit(['checkout', fromBranch], folderPath!);
-
-      // Then create new branch
-      final output = await runGit(['checkout', '-b', newBranchName], folderPath!);
-      setState(() {
-        result += output;
-      });
-    }
-
-    setState(() {
-      newBranchName = '';
-    });
-
-    await loadBranches();
-  }
-
   Future<void> mergeBranches() async {
     if (folderPath == null || selectedSourceBranches.isEmpty || destinationBranch == null) {
       setState(() {
@@ -279,6 +340,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
     setState(() {
       result += '\n--- Merging Branches ---\n';
       result += 'Merging ${selectedSourceBranches.join(', ')} into $destinationBranch\n';
+      isLoading = true;
     });
 
     try {
@@ -332,6 +394,10 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
       });
     }
 
+    setState(() {
+      isLoading = false;
+    });
+
     // Refresh branches after merge
     await loadBranches();
   }
@@ -340,142 +406,64 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('GitHub Repo Reader with Merge (macOS)'),
+        title: const Text('Git Repo Clone & Merge Tool'),
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          children: [
-            ElevatedButton.icon(
-              onPressed: pickFolderAndReadRepo,
-              icon: const Icon(Icons.folder_open),
-              label: const Text('Select Git Repo Folder'),
-            ),
-            const SizedBox(height: 20),
-            if (folderPath != null) ...[
-
-              // Merge Section
+      body: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+            children: [
+              // Clone Section
               Card(
                 child: Padding(
                   padding: const EdgeInsets.all(16.0),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Branch Merge', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      const Text('Clone Repository', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                       const SizedBox(height: 10),
-
-                      // Source branches with checkboxes
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            flex: 2,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text('Source Branches:', style: TextStyle(fontWeight: FontWeight.bold)),
-                                const SizedBox(height: 8),
-                                Container(
-                                  height: 200,
-                                  decoration: BoxDecoration(
-                                    border: Border.all(color: Colors.grey),
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: ListView.builder(
-                                    itemCount: allBranches.length,
-                                    itemBuilder: (context, index) {
-                                      final branch = allBranches[index];
-                                      return CheckboxListTile(
-                                        dense: true,
-                                        title: Text(branch),
-                                        value: selectedSourceBranches.contains(branch),
-                                        onChanged: (bool? value) {
-                                          setState(() {
-                                            if (value == true) {
-                                              selectedSourceBranches.add(branch);
-                                            } else {
-                                              selectedSourceBranches.remove(branch);
-                                            }
-                                          });
-                                        },
-                                      );
-                                    },
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 20),
-                          const Icon(Icons.arrow_forward, size: 32),
-                          const SizedBox(width: 20),
-
-                          // Destination branch dropdown
-                          Expanded(
-                            flex: 1,
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text('Destination Branch:', style: TextStyle(fontWeight: FontWeight.bold)),
-                                const SizedBox(height: 8),
-                                DropdownButton<String>(
-                                  isExpanded: true,
-                                  hint: const Text('Select Destination'),
-                                  value: destinationBranch,
-                                  items: allBranches.map((branch) {
-                                    return DropdownMenuItem(
-                                      value: branch,
-                                      child: Text(branch),
-                                    );
-                                  }).toList(),
-                                  onChanged: (value) {
-                                    setState(() {
-                                      destinationBranch = value;
-                                    });
-                                  },
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-
-                      const SizedBox(height: 15),
-
-                      // Selected branches summary
-                      if (selectedSourceBranches.isNotEmpty) ...[
-                        Text(
-                          'Selected: ${selectedSourceBranches.join(', ')} → ${destinationBranch ?? 'None'}',
-                          style: const TextStyle(fontStyle: FontStyle.italic),
+                      TextField(
+                        controller: _repoUrlController,
+                        decoration: const InputDecoration(
+                          labelText: 'Repository URL',
+                          hintText: 'https://github.com/user/repo.git',
+                          border: OutlineInputBorder(),
                         ),
-                        const SizedBox(height: 10),
-                      ],
-
-                      // Action buttons
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: _folderNameController,
+                        decoration: const InputDecoration(
+                          labelText: 'Folder Name (optional)',
+                          hintText: 'Leave empty to use repository name',
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
                       Row(
                         children: [
                           ElevatedButton.icon(
-                            onPressed: mergeBranches,
-                            icon: const Icon(Icons.merge_type),
-                            label: const Text('Merge Selected Branches'),
+                            onPressed: isCloning ? null : cloneRepository,
+                            icon: isCloning
+                                ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                                : const Icon(Icons.cloud_download),
+                            label: Text(isCloning ? 'Cloning...' : 'Clone Repository'),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.green,
+                              backgroundColor: Colors.blue,
                               foregroundColor: Colors.white,
                             ),
                           ),
                           const SizedBox(width: 10),
+                          const Text('OR'),
+                          const SizedBox(width: 10),
                           ElevatedButton.icon(
-                            onPressed: () {
-                              setState(() {
-                                selectedSourceBranches.clear();
-                                destinationBranch = null;
-                              });
-                            },
-                            icon: const Icon(Icons.clear),
-                            label: const Text('Clear Selection'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.orange,
-                              foregroundColor: Colors.white,
-                            ),
+                            onPressed: pickFolderAndReadRepo,
+                            icon: const Icon(Icons.folder_open),
+                            label: const Text('Select Existing Repo'),
                           ),
                         ],
                       ),
@@ -484,13 +472,187 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                 ),
               ),
               const SizedBox(height: 20),
-            ],
-            Expanded(
-              child: SingleChildScrollView(
-                child: SelectableText(result),
+
+              if (folderPath != null && !isCloning) ...[
+                // Merge Section
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Text('Branch Merge', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                            const Spacer(),
+                            ElevatedButton.icon(
+                              onPressed: isLoading ? null : loadBranches,
+                              icon: isLoading
+                                  ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2),
+                              )
+                                  : const Icon(Icons.refresh),
+                              label: const Text('Refresh Branches'),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+
+                        if (isLoading) ...[
+                          const Center(child: CircularProgressIndicator()),
+                          const SizedBox(height: 20),
+                        ] else ...[
+                          // Source branches with checkboxes
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                flex: 2,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text('Source Branches:', style: TextStyle(fontWeight: FontWeight.bold)),
+                                    const SizedBox(height: 8),
+                                    Container(
+                                      height: 200,
+                                      decoration: BoxDecoration(
+                                        border: Border.all(color: Colors.grey),
+                                        borderRadius: BorderRadius.circular(4),
+                                      ),
+                                      child: allBranches.isEmpty
+                                          ? const Center(child: Text('No branches available'))
+                                          : ListView.builder(
+                                        itemCount: allBranches.length,
+                                        itemBuilder: (context, index) {
+                                          final branch = allBranches[index];
+                                          return CheckboxListTile(
+                                            dense: true,
+                                            title: Text(branch),
+                                            value: selectedSourceBranches.contains(branch),
+                                            onChanged: (bool? value) {
+                                              setState(() {
+                                                if (value == true) {
+                                                  selectedSourceBranches.add(branch);
+                                                } else {
+                                                  selectedSourceBranches.remove(branch);
+                                                }
+                                              });
+                                            },
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(width: 20),
+                              const Icon(Icons.arrow_forward, size: 32),
+                              const SizedBox(width: 20),
+
+                              // Destination branch dropdown
+                              Expanded(
+                                flex: 1,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text('Destination Branch:', style: TextStyle(fontWeight: FontWeight.bold)),
+                                    const SizedBox(height: 8),
+                                    DropdownButton<String>(
+                                      isExpanded: true,
+                                      hint: const Text('Select Destination'),
+                                      value: destinationBranch,
+                                      items: allBranches.map((branch) {
+                                        return DropdownMenuItem(
+                                          value: branch,
+                                          child: Text(branch),
+                                        );
+                                      }).toList(),
+                                      onChanged: (value) {
+                                        setState(() {
+                                          destinationBranch = value;
+                                        });
+                                      },
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+
+                          const SizedBox(height: 15),
+
+                          // Selected branches summary
+                          if (selectedSourceBranches.isNotEmpty) ...[
+                            Text(
+                              'Selected: ${selectedSourceBranches.join(', ')} → ${destinationBranch ?? 'None'}',
+                              style: const TextStyle(fontStyle: FontStyle.italic),
+                            ),
+                            const SizedBox(height: 10),
+                          ],
+
+                          // Action buttons
+                          Row(
+                            children: [
+                              ElevatedButton.icon(
+                                onPressed: (selectedSourceBranches.isEmpty || destinationBranch == null || isLoading)
+                                    ? null
+                                    : mergeBranches,
+                                icon: isLoading
+                                    ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                                    : const Icon(Icons.merge_type),
+                                label: const Text('Merge Selected Branches'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.green,
+                                  foregroundColor: Colors.white,
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              ElevatedButton.icon(
+                                onPressed: () {
+                                  setState(() {
+                                    selectedSourceBranches.clear();
+                                    destinationBranch = null;
+                                  });
+                                },
+                                icon: const Icon(Icons.clear),
+                                label: const Text('Clear Selection'),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.orange,
+                                  foregroundColor: Colors.white,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+              ],
+
+              // Output Section
+              Container(
+                height: 300,
+                decoration: BoxDecoration(
+                  border: Border.all(color: Colors.grey),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: SingleChildScrollView(
+                  child: Padding(
+                    padding: const EdgeInsets.all(8.0),
+                    child: SelectableText(result),
+                  ),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
