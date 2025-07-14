@@ -42,8 +42,8 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
   String? selectedRemoteBranch;
   String newBranchName = '';
 
-  // For merge operations
-  String? sourceBranch;
+  // For merge operations - changed to support multiple source branches
+  Set<String> selectedSourceBranches = <String>{};
   String? destinationBranch;
 
   // Find Git executable in common locations
@@ -85,6 +85,8 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
       localBranches = [];
       remoteBranches = [];
       allBranches = [];
+      selectedSourceBranches.clear();
+      destinationBranch = null;
     });
 
     final gitDir = Directory(p.join(selectedDir, '.git'));
@@ -173,6 +175,12 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
       result += 'Local branches: ${localBranches.join(', ')}\n';
       result += 'Remote branches: ${remoteBranches.join(', ')}\n';
       result += 'All branches for merge: ${allBranches.join(', ')}\n';
+
+      // Clear invalid selections
+      selectedSourceBranches.removeWhere((branch) => !allBranches.contains(branch));
+      if (destinationBranch != null && !allBranches.contains(destinationBranch!)) {
+        destinationBranch = null;
+      }
     });
   }
 
@@ -254,14 +262,14 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
   }
 
   Future<void> mergeBranches() async {
-    if (folderPath == null || sourceBranch == null || destinationBranch == null) {
+    if (folderPath == null || selectedSourceBranches.isEmpty || destinationBranch == null) {
       setState(() {
-        result += '\nPlease select both source and destination branches.';
+        result += '\nPlease select source branch(es) and destination branch.';
       });
       return;
     }
 
-    if (sourceBranch == destinationBranch) {
+    if (selectedSourceBranches.contains(destinationBranch)) {
       setState(() {
         result += '\nSource and destination branches cannot be the same.';
       });
@@ -270,7 +278,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
 
     setState(() {
       result += '\n--- Merging Branches ---\n';
-      result += 'Merging $sourceBranch into $destinationBranch\n';
+      result += 'Merging ${selectedSourceBranches.join(', ')} into $destinationBranch\n';
     });
 
     try {
@@ -291,20 +299,30 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
         });
       }
 
-      // Perform the merge
-      var mergeOutput = await runGit(['merge', sourceBranch!], folderPath!);
-      setState(() {
-        result += 'Merge output: $mergeOutput\n';
-      });
-
-      // Check if merge was successful
-      if (!mergeOutput.contains('Error:')) {
+      // Perform the merge for each selected source branch
+      bool allMergesSuccessful = true;
+      for (String sourceBranch in selectedSourceBranches) {
         setState(() {
-          result += 'Merge completed successfully!\n';
+          result += '\n--- Merging $sourceBranch ---\n';
         });
-      } else {
+
+        var mergeOutput = await runGit(['merge', sourceBranch], folderPath!);
         setState(() {
-          result += 'Merge failed. Please resolve conflicts manually.\n';
+          result += 'Merge output: $mergeOutput\n';
+        });
+
+        if (mergeOutput.contains('Error:')) {
+          allMergesSuccessful = false;
+          setState(() {
+            result += 'Merge of $sourceBranch failed. Please resolve conflicts manually.\n';
+          });
+          break; // Stop merging if one fails
+        }
+      }
+
+      if (allMergesSuccessful) {
+        setState(() {
+          result += 'All merges completed successfully!\n';
         });
       }
 
@@ -345,58 +363,121 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                     children: [
                       const Text('Branch Merge', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                       const SizedBox(height: 10),
+
+                      // Source branches with checkboxes
                       Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Expanded(
-                            child: DropdownButton<String>(
-                              isExpanded: true,
-                              hint: const Text('Select Source Branch'),
-                              value: sourceBranch,
-                              items: allBranches.map((branch) {
-                                return DropdownMenuItem(
-                                  value: branch,
-                                  child: Text(branch),
-                                );
-                              }).toList(),
-                              onChanged: (value) {
-                                setState(() {
-                                  sourceBranch = value;
-                                });
-                              },
+                            flex: 2,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Source Branches:', style: TextStyle(fontWeight: FontWeight.bold)),
+                                const SizedBox(height: 8),
+                                Container(
+                                  height: 200,
+                                  decoration: BoxDecoration(
+                                    border: Border.all(color: Colors.grey),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: ListView.builder(
+                                    itemCount: allBranches.length,
+                                    itemBuilder: (context, index) {
+                                      final branch = allBranches[index];
+                                      return CheckboxListTile(
+                                        dense: true,
+                                        title: Text(branch),
+                                        value: selectedSourceBranches.contains(branch),
+                                        onChanged: (bool? value) {
+                                          setState(() {
+                                            if (value == true) {
+                                              selectedSourceBranches.add(branch);
+                                            } else {
+                                              selectedSourceBranches.remove(branch);
+                                            }
+                                          });
+                                        },
+                                      );
+                                    },
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                          const SizedBox(width: 10),
-                          const Icon(Icons.arrow_forward),
-                          const SizedBox(width: 10),
+                          const SizedBox(width: 20),
+                          const Icon(Icons.arrow_forward, size: 32),
+                          const SizedBox(width: 20),
+
+                          // Destination branch dropdown
                           Expanded(
-                            child: DropdownButton<String>(
-                              isExpanded: true,
-                              hint: const Text('Select Destination Branch'),
-                              value: destinationBranch,
-                              items: allBranches.map((branch) {
-                                return DropdownMenuItem(
-                                  value: branch,
-                                  child: Text(branch),
-                                );
-                              }).toList(),
-                              onChanged: (value) {
-                                setState(() {
-                                  destinationBranch = value;
-                                });
-                              },
+                            flex: 1,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Destination Branch:', style: TextStyle(fontWeight: FontWeight.bold)),
+                                const SizedBox(height: 8),
+                                DropdownButton<String>(
+                                  isExpanded: true,
+                                  hint: const Text('Select Destination'),
+                                  value: destinationBranch,
+                                  items: allBranches.map((branch) {
+                                    return DropdownMenuItem(
+                                      value: branch,
+                                      child: Text(branch),
+                                    );
+                                  }).toList(),
+                                  onChanged: (value) {
+                                    setState(() {
+                                      destinationBranch = value;
+                                    });
+                                  },
+                                ),
+                              ],
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 10),
-                      ElevatedButton.icon(
-                        onPressed: mergeBranches,
-                        icon: const Icon(Icons.merge_type),
-                        label: const Text('Merge Branches'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.green,
-                          foregroundColor: Colors.white,
+
+                      const SizedBox(height: 15),
+
+                      // Selected branches summary
+                      if (selectedSourceBranches.isNotEmpty) ...[
+                        Text(
+                          'Selected: ${selectedSourceBranches.join(', ')} → ${destinationBranch ?? 'None'}',
+                          style: const TextStyle(fontStyle: FontStyle.italic),
                         ),
+                        const SizedBox(height: 10),
+                      ],
+
+                      // Action buttons
+                      Row(
+                        children: [
+                          ElevatedButton.icon(
+                            onPressed: mergeBranches,
+                            icon: const Icon(Icons.merge_type),
+                            label: const Text('Merge Selected Branches'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.green,
+                              foregroundColor: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          ElevatedButton.icon(
+                            onPressed: () {
+                              setState(() {
+                                selectedSourceBranches.clear();
+                                destinationBranch = null;
+                              });
+                            },
+                            icon: const Icon(Icons.clear),
+                            label: const Text('Clear Selection'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.orange,
+                              foregroundColor: Colors.white,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
