@@ -47,7 +47,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
 
   // For merge operations
   Set<String> selectedSourceBranches = <String>{};
-  String? destinationBranch;
+  String destinationBranch = "main"; // Always set to "main"
 
   @override
   void dispose() {
@@ -94,7 +94,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
       remoteBranches = [];
       allBranches = [];
       selectedSourceBranches.clear();
-      destinationBranch = null;
+      destinationBranch = "main"; // Always reset to "main"
     });
 
     // Check Git availability
@@ -172,7 +172,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
       remoteBranches = [];
       allBranches = [];
       selectedSourceBranches.clear();
-      destinationBranch = null;
+      destinationBranch = "main"; // Always reset to "main"
     });
 
     final gitDir = Directory(p.join(selectedDir, '.git'));
@@ -269,9 +269,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
 
         // Clear invalid selections
         selectedSourceBranches.removeWhere((branch) => !allBranches.contains(branch));
-        if (destinationBranch != null && !allBranches.contains(destinationBranch!)) {
-          destinationBranch = null;
-        }
+        // Destination branch is always "main" - no need to validate
 
         isLoading = false;
       });
@@ -317,9 +315,9 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
   }
 
   Future<void> mergeBranches() async {
-    if (folderPath == null || selectedSourceBranches.isEmpty || destinationBranch == null) {
+    if (folderPath == null || selectedSourceBranches.isEmpty) {
       setState(() {
-        result += '\nPlease select source branch(es) and destination branch.';
+        result += '\nPlease select source branch(es).';
       });
       return;
     }
@@ -342,14 +340,14 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
       await runGit(['fetch', 'origin'], folderPath!);
 
       // Checkout the destination branch
-      var checkoutOutput = await runGit(['checkout', destinationBranch!], folderPath!);
+      var checkoutOutput = await runGit(['checkout', destinationBranch], folderPath!);
       setState(() {
         result += 'Checkout output: $checkoutOutput\n';
       });
 
       // Pull latest changes for destination branch if it's a local branch
       if (localBranches.contains(destinationBranch)) {
-        var pullOutput = await runGit(['pull', 'origin', destinationBranch!], folderPath!);
+        var pullOutput = await runGit(['pull', 'origin', destinationBranch], folderPath!);
         setState(() {
           result += 'Pull output: $pullOutput\n';
         });
@@ -400,7 +398,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Git Repo Clone & Merge Tool'),
+        title: const Text('Boiler platte code automatic'),
       ),
       body: SingleChildScrollView(
         child: Padding(
@@ -414,32 +412,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Clone Repository', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 10),
-                      // Display the hardcoded repository URL
-                      // Container(
-                      //   padding: const EdgeInsets.all(12),
-                      //   decoration: BoxDecoration(
-                      //     color: Colors.grey[100],
-                      //     borderRadius: BorderRadius.circular(4),
-                      //     border: Border.all(color: Colors.grey[300]!),
-                      //   ),
-                      //   child: Row(
-                      //     children: [
-                      //       const Icon(Icons.link, color: Colors.blue),
-                      //       const SizedBox(width: 8),
-                      //       Expanded(
-                      //         child: Text(
-                      //           repoUrl,
-                      //           style: const TextStyle(
-                      //             fontFamily: 'monospace',
-                      //             fontSize: 12,
-                      //           ),
-                      //         ),
-                      //       ),
-                      //     ],
-                      //   ),
-                      // ),
+                      const Text('Create Flutter project', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                       const SizedBox(height: 10),
                       TextField(
                         controller: _folderNameController,
@@ -461,20 +434,12 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
                                 : const Icon(Icons.cloud_download),
-                            label: Text(isCloning ? 'Cloning...' : 'Create Project'),
+                            label: Text(isCloning ? 'Creating Project...' : 'Create Project'),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.blue,
                               foregroundColor: Colors.white,
                             ),
                           ),
-                          // const SizedBox(width: 10),
-                          // const Text('OR'),
-                          // const SizedBox(width: 10),
-                          // ElevatedButton.icon(
-                          //   onPressed: pickFolderAndReadRepo,
-                          //   icon: const Icon(Icons.folder_open),
-                          //   label: const Text('Select Existing Repo'),
-                          // ),
                         ],
                       ),
                     ],
@@ -519,12 +484,9 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Expanded(
-                                flex: 2,
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    // const Text('Source Branches:', style: TextStyle(fontWeight: FontWeight.bold)),
-                                    // const SizedBox(height: 8),
                                     Container(
                                       height: 200,
                                       decoration: BoxDecoration(
@@ -560,34 +522,35 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                               const SizedBox(width: 20),
                               const Icon(Icons.arrow_forward, size: 32),
                               const SizedBox(width: 20),
-
-                              // Destination branch dropdown
-                              Expanded(
-                                flex: 1,
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text('Destination Branch:', style: TextStyle(fontWeight: FontWeight.bold)),
-                                    const SizedBox(height: 8),
-                                    DropdownButton<String>(
-                                      isExpanded: true,
-                                      hint: const Text('Select Destination'),
-                                      value: destinationBranch,
-                                      items: allBranches.map((branch) {
-                                        return DropdownMenuItem(
-                                          value: branch,
-                                          child: Text(branch),
-                                        );
-                                      }).toList(),
-                                      onChanged: (value) {
-                                        setState(() {
-                                          destinationBranch = value;
-                                        });
-                                      },
-                                    ),
-                                  ],
-                                ),
-                              ),
+                              // Destination branch display (hidden dropdown, just showing "main")
+                              // Expanded(
+                              //   child: Column(
+                              //     crossAxisAlignment: CrossAxisAlignment.start,
+                              //     children: [
+                              //       Container(
+                              //         padding: const EdgeInsets.all(12),
+                              //         decoration: BoxDecoration(
+                              //           color: Colors.grey[100],
+                              //           borderRadius: BorderRadius.circular(4),
+                              //           border: Border.all(color: Colors.grey[300]!),
+                              //         ),
+                              //         child: Row(
+                              //           children: [
+                              //             const Icon(Icons.merge_type, color: Colors.green),
+                              //             const SizedBox(width: 8),
+                              //             Text(
+                              //               'Target: $destinationBranch',
+                              //               style: const TextStyle(
+                              //                 fontWeight: FontWeight.bold,
+                              //                 fontSize: 16,
+                              //               ),
+                              //             ),
+                              //           ],
+                              //         ),
+                              //       ),
+                              //     ],
+                              //   ),
+                              // ),
                             ],
                           ),
 
@@ -596,7 +559,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                           // Selected branches summary
                           if (selectedSourceBranches.isNotEmpty) ...[
                             Text(
-                              'Selected: ${selectedSourceBranches.join(', ')} → ${destinationBranch ?? 'None'}',
+                              'Selected: ${selectedSourceBranches.join(', ')} → $destinationBranch',
                               style: const TextStyle(fontStyle: FontStyle.italic),
                             ),
                             const SizedBox(height: 10),
@@ -606,7 +569,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                           Row(
                             children: [
                               ElevatedButton.icon(
-                                onPressed: (selectedSourceBranches.isEmpty || destinationBranch == null || isLoading)
+                                onPressed: (selectedSourceBranches.isEmpty || isLoading)
                                     ? null
                                     : mergeBranches,
                                 icon: isLoading
@@ -627,7 +590,6 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                                 onPressed: () {
                                   setState(() {
                                     selectedSourceBranches.clear();
-                                    destinationBranch = null;
                                   });
                                 },
                                 icon: const Icon(Icons.clear),
