@@ -45,6 +45,10 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
   List<String> remoteBranches = [];
   List<String> allBranches = []; // Combined list for merge operations
 
+  // New categorized branch lists
+  List<String> widgetBranches = [];
+  List<String> featureBranches = [];
+
   // For merge operations
   Set<String> selectedSourceBranches = <String>{};
   String destinationBranch = "main"; // Always set to "main"
@@ -93,6 +97,8 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
       localBranches = [];
       remoteBranches = [];
       allBranches = [];
+      widgetBranches = [];
+      featureBranches = [];
       selectedSourceBranches.clear();
       destinationBranch = "main"; // Always reset to "main"
     });
@@ -171,6 +177,8 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
       localBranches = [];
       remoteBranches = [];
       allBranches = [];
+      widgetBranches = [];
+      featureBranches = [];
       selectedSourceBranches.clear();
       destinationBranch = "main"; // Always reset to "main"
     });
@@ -263,9 +271,25 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
           }
         }
 
+        // Categorize branches into widgets and features
+        widgetBranches = allBranches
+            .where((branch) =>
+        branch.startsWith('origin/widget-') ||
+            branch.startsWith('origin/widget_') ||
+            branch.startsWith('widget-') ||
+            branch.startsWith('widget_'))
+            .toList();
+
+        featureBranches = allBranches
+            .where((branch) =>
+        branch.startsWith('origin/feature-') ||
+            branch.startsWith('feature-'))
+            .toList();
+
         result += 'Local branches: ${localBranches.join(', ')}\n';
         result += 'Remote branches: ${remoteBranches.join(', ')}\n';
-        result += 'All branches available: ${allBranches.join(', ')}\n';
+        result += 'Widget branches: ${widgetBranches.join(', ')}\n';
+        result += 'Feature branches: ${featureBranches.join(', ')}\n';
 
         // Clear invalid selections
         selectedSourceBranches.removeWhere((branch) => !allBranches.contains(branch));
@@ -394,6 +418,97 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
     await loadBranches();
   }
 
+  Widget _buildBranchSection(String title, List<String> branches, Color color) {
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 8.0),
+      child: Padding(
+        padding: const EdgeInsets.all(12.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  title == 'List of widgets' ? Icons.widgets : Icons.star,
+                  color: color,
+                  size: 20,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: color,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: color.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    '${branches.length}',
+                    style: TextStyle(
+                      color: color,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Container(
+              height: 120,
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.grey.shade300),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: branches.isEmpty
+                  ? Center(
+                child: Text(
+                  'No ${title.toLowerCase()} available',
+                  style: TextStyle(
+                    color: Colors.grey.shade600,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              )
+                  : ListView.builder(
+                itemCount: branches.length,
+                itemBuilder: (context, index) {
+                  final branch = branches[index];
+                  return CheckboxListTile(
+                    dense: true,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 8.0),
+                    title: Text(
+                      branch,
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                    value: selectedSourceBranches.contains(branch),
+                    activeColor: color,
+                    onChanged: (bool? value) {
+                      setState(() {
+                        if (value == true) {
+                          selectedSourceBranches.add(branch);
+                        } else {
+                          selectedSourceBranches.remove(branch);
+                        }
+                      });
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -458,7 +573,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                       children: [
                         Row(
                           children: [
-                            const Text('List of widgets', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                            const Text('Branch Selection', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                             const Spacer(),
                             ElevatedButton.icon(
                               onPressed: isLoading ? null : loadBranches,
@@ -479,88 +594,37 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                           const Center(child: CircularProgressIndicator()),
                           const SizedBox(height: 20),
                         ] else ...[
-                          // Source branches with checkboxes
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Container(
-                                      height: 200,
-                                      decoration: BoxDecoration(
-                                        border: Border.all(color: Colors.grey),
-                                        borderRadius: BorderRadius.circular(4),
-                                      ),
-                                      child: allBranches.isEmpty
-                                          ? const Center(child: Text('No branches available'))
-                                          : ListView.builder(
-                                        itemCount: allBranches.length,
-                                        itemBuilder: (context, index) {
-                                          final branch = allBranches[index];
-                                          return CheckboxListTile(
-                                            dense: true,
-                                            title: Text(branch),
-                                            value: selectedSourceBranches.contains(branch),
-                                            onChanged: (bool? value) {
-                                              setState(() {
-                                                if (value == true) {
-                                                  selectedSourceBranches.add(branch);
-                                                } else {
-                                                  selectedSourceBranches.remove(branch);
-                                                }
-                                              });
-                                            },
-                                          );
-                                        },
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(width: 20),
-                              const Icon(Icons.arrow_forward, size: 32),
-                              const SizedBox(width: 20),
-                              // Destination branch display (hidden dropdown, just showing "main")
-                              // Expanded(
-                              //   child: Column(
-                              //     crossAxisAlignment: CrossAxisAlignment.start,
-                              //     children: [
-                              //       Container(
-                              //         padding: const EdgeInsets.all(12),
-                              //         decoration: BoxDecoration(
-                              //           color: Colors.grey[100],
-                              //           borderRadius: BorderRadius.circular(4),
-                              //           border: Border.all(color: Colors.grey[300]!),
-                              //         ),
-                              //         child: Row(
-                              //           children: [
-                              //             const Icon(Icons.merge_type, color: Colors.green),
-                              //             const SizedBox(width: 8),
-                              //             Text(
-                              //               'Target: $destinationBranch',
-                              //               style: const TextStyle(
-                              //                 fontWeight: FontWeight.bold,
-                              //                 fontSize: 16,
-                              //               ),
-                              //             ),
-                              //           ],
-                              //         ),
-                              //       ),
-                              //     ],
-                              //   ),
-                              // ),
-                            ],
-                          ),
+                          // Widget branches section
+                          _buildBranchSection('List of widgets', widgetBranches, Colors.blue),
+
+                          // Feature branches section
+                          _buildBranchSection('List of features', featureBranches, Colors.green),
 
                           const SizedBox(height: 15),
 
                           // Selected branches summary
                           if (selectedSourceBranches.isNotEmpty) ...[
-                            Text(
-                              'Selected: ${selectedSourceBranches.join(', ')} → $destinationBranch',
-                              style: const TextStyle(fontStyle: FontStyle.italic),
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade100,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: Colors.grey.shade300),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Selected branches:',
+                                    style: TextStyle(fontWeight: FontWeight.bold),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    selectedSourceBranches.join(', '),
+                                    style: const TextStyle(fontStyle: FontStyle.italic),
+                                  ),
+                                ],
+                              ),
                             ),
                             const SizedBox(height: 10),
                           ],
