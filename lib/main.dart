@@ -16,8 +16,63 @@ class GitRepoReaderApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'GitHub Repo Reader',
-      theme: ThemeData(primarySwatch: Colors.blue),
+      theme: ThemeData(
+        brightness: Brightness.dark,
+        scaffoldBackgroundColor: const Color(0xFF181A1B),
+        primaryColor: const Color(0xFF1DE9B6),
+        colorScheme: ColorScheme.dark(
+          primary: const Color(0xFF1DE9B6),
+          secondary: const Color(0xFF00BFAE),
+          background: const Color(0xFF181A1B),
+          surface: const Color(0xFF23272A),
+        ),
+        cardColor: const Color(0xCC23272A), // semi-transparent
+        dialogBackgroundColor: const Color(0xCC23272A),
+        canvasColor: const Color(0xFF181A1B),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Color(0xFF23272A),
+          foregroundColor: Colors.white,
+          elevation: 0,
+        ),
+        inputDecorationTheme: InputDecorationTheme(
+          filled: true,
+          fillColor: const Color(0x33FFFFFF),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: const BorderSide(color: Color(0xFF1DE9B6)),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(8),
+            borderSide: const BorderSide(color: Color(0xFF1DE9B6), width: 2),
+          ),
+          labelStyle: const TextStyle(color: Color(0xFF1DE9B6)),
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF1DE9B6),
+            foregroundColor: Colors.black,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+            textStyle: const TextStyle(fontWeight: FontWeight.bold),
+          ),
+        ),
+        checkboxTheme: CheckboxThemeData(
+          fillColor: MaterialStateProperty.all(const Color(0xFF1DE9B6)),
+          checkColor: MaterialStateProperty.all(Colors.black),
+        ),
+        textTheme: const TextTheme(
+          bodyLarge: TextStyle(color: Colors.white),
+          bodyMedium: TextStyle(color: Colors.white70),
+          bodySmall: TextStyle(color: Colors.white60),
+          titleLarge: TextStyle(color: Color(0xFF1DE9B6), fontWeight: FontWeight.bold),
+          titleMedium: TextStyle(color: Color(0xFF1DE9B6)),
+        ),
+        dividerColor: Colors.white24,
+        iconTheme: const IconThemeData(color: Color(0xFF1DE9B6)),
+      ),
       home: const RepoReaderScreen(),
+      debugShowCheckedModeBanner: false,
     );
   }
 }
@@ -432,6 +487,8 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
   Widget _buildBranchSection(String title, List<String> branches, Color color) {
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 8.0),
+      elevation: 4,
+      color: const Color(0xCC23272A), // semi-transparent
       child: Padding(
         padding: const EdgeInsets.all(12.0),
         child: Column(
@@ -451,13 +508,20 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                     fontSize: 16,
                     fontWeight: FontWeight.bold,
                     color: color,
+                    shadows: [
+                      Shadow(
+                        color: Colors.black.withOpacity(0.5),
+                        blurRadius: 4,
+                        offset: const Offset(1, 1),
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(width: 8),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   decoration: BoxDecoration(
-                    color: color.withOpacity(0.1),
+                    color: color.withOpacity(0.2),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Text(
@@ -475,7 +539,8 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
             Container(
               height: 120,
               decoration: BoxDecoration(
-                border: Border.all(color: Colors.grey.shade300),
+                color: Colors.black.withOpacity(0.2),
+                border: Border.all(color: Colors.white24),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: branches.isEmpty
@@ -483,7 +548,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                 child: Text(
                   'No ${title.toLowerCase()} available',
                   style: TextStyle(
-                    color: Colors.grey.shade600,
+                    color: Colors.white54,
                     fontStyle: FontStyle.italic,
                   ),
                 ),
@@ -496,12 +561,14 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                   return CheckboxListTile(
                     dense: true,
                     contentPadding: const EdgeInsets.symmetric(horizontal: 8.0),
+                    tileColor: Colors.transparent,
                     title: Text(
                       displayName, // Show clean display name
-                      style: const TextStyle(fontSize: 14),
+                      style: const TextStyle(fontSize: 14, color: Colors.white),
                     ),
                     value: selectedSourceBranches.contains(branch),
                     activeColor: color,
+                    checkColor: Colors.black,
                     onChanged: (bool? value) {
                       setState(() {
                         if (value == true) {
@@ -525,7 +592,9 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Boiler platte code automatic'),
+        title: const Text('Boiler platte code automatic', style: TextStyle(color: Color(0xFF1DE9B6), fontWeight: FontWeight.bold)),
+        backgroundColor: const Color(0xFF23272A),
+        elevation: 0,
       ),
       body: SingleChildScrollView(
         child: Padding(
@@ -534,18 +603,22 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
             children: [
               // Clone Section
               Card(
+                color: const Color(0xCC23272A),
+                elevation: 6,
                 child: Padding(
                   padding: const EdgeInsets.all(16.0),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Create Flutter project', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      const Text('Create Flutter project', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1DE9B6))),
                       const SizedBox(height: 10),
                       TextField(
                         controller: _folderNameController,
+                        style: const TextStyle(color: Colors.white),
                         decoration: const InputDecoration(
                           labelText: 'Folder Name (optional)',
-                          hintText: 'Leave empty to use repository name',
+                          labelStyle: TextStyle(color: Color(0xFF1DE9B6)),
+                          hintText: '',
                           border: OutlineInputBorder(),
                         ),
                       ),
@@ -558,13 +631,13 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                                 ? const SizedBox(
                               width: 16,
                               height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF1DE9B6)),
                             )
-                                : const Icon(Icons.cloud_download),
-                            label: Text(isCloning ? 'Creating Project...' : 'Create Project'),
+                                : const Icon(Icons.cloud_download, color: Colors.black),
+                            label: Text(isCloning ? 'Creating Project...' : 'Create Project', style: const TextStyle(color: Colors.black)),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.blue,
-                              foregroundColor: Colors.white,
+                              backgroundColor: const Color(0xFF1DE9B6),
+                              foregroundColor: Colors.black,
                             ),
                           ),
                         ],
@@ -578,6 +651,8 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
               if (folderPath != null && !isCloning) ...[
                 // Merge Section
                 Card(
+                  color: const Color(0xCC23272A),
+                  elevation: 6,
                   child: Padding(
                     padding: const EdgeInsets.all(16.0),
                     child: Column(
@@ -585,7 +660,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                       children: [
                         Row(
                           children: [
-                            const Text('Branch Selection', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                            const Text('Branch Selection', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1DE9B6))),
                             const Spacer(),
                             ElevatedButton.icon(
                               onPressed: isLoading ? null : loadBranches,
@@ -593,10 +668,14 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                                   ? const SizedBox(
                                 width: 16,
                                 height: 16,
-                                child: CircularProgressIndicator(strokeWidth: 2),
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF1DE9B6)),
                               )
-                                  : const Icon(Icons.refresh),
-                              label: const Text('Refresh'),
+                                  : const Icon(Icons.refresh, color: Colors.black),
+                              label: const Text('Refresh', style: TextStyle(color: Colors.black)),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF1DE9B6),
+                                foregroundColor: Colors.black,
+                              ),
                             ),
                           ],
                         ),
@@ -652,13 +731,13 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                                     ? const SizedBox(
                                   width: 16,
                                   height: 16,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF1DE9B6)),
                                 )
-                                    : const Icon(Icons.merge_type),
-                                label: const Text('Apply in project'),
+                                    : const Icon(Icons.merge_type, color: Colors.black),
+                                label: const Text('Apply in project', style: TextStyle(color: Colors.black)),
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.green,
-                                  foregroundColor: Colors.white,
+                                  backgroundColor: const Color(0xFF1DE9B6),
+                                  foregroundColor: Colors.black,
                                 ),
                               ),
                               const SizedBox(width: 10),
@@ -668,11 +747,11 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                                     selectedSourceBranches.clear();
                                   });
                                 },
-                                icon: const Icon(Icons.clear),
-                                label: const Text('Clear Selection'),
+                                icon: const Icon(Icons.clear, color: Colors.black),
+                                label: const Text('Clear Selection', style: TextStyle(color: Colors.black)),
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.orange,
-                                  foregroundColor: Colors.white,
+                                  backgroundColor: const Color(0xFF00BFAE),
+                                  foregroundColor: Colors.black,
                                 ),
                               ),
                             ],
@@ -689,13 +768,14 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
               Container(
                 height: 300,
                 decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey),
+                  color: Colors.black.withOpacity(0.3),
+                  border: Border.all(color: Colors.white24),
                   borderRadius: BorderRadius.circular(4),
                 ),
                 child: SingleChildScrollView(
                   child: Padding(
                     padding: const EdgeInsets.all(8.0),
-                    child: SelectableText(result),
+                    child: SelectableText(result, style: const TextStyle(color: Colors.white70, fontFamily: 'FiraMono', fontSize: 13)),
                   ),
                 ),
               ),
