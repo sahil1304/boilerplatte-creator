@@ -59,6 +59,17 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
     super.dispose();
   }
 
+  // Helper function to get display name (without prefixes)
+  String getDisplayName(String branchName) {
+    return branchName
+        .replaceAll('origin/widget-', '')
+        .replaceAll('origin/widget_', '')
+        .replaceAll('origin/feature-', '')
+        .replaceAll('widget-', '')
+        .replaceAll('widget_', '')
+        .replaceAll('feature-', '');
+  }
+
   // Find Git executable in common locations
   Future<String?> findGitExecutable() async {
     final possiblePaths = [
@@ -481,11 +492,12 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                 itemCount: branches.length,
                 itemBuilder: (context, index) {
                   final branch = branches[index];
+                  final displayName = getDisplayName(branch); // Use display name for UI
                   return CheckboxListTile(
                     dense: true,
                     contentPadding: const EdgeInsets.symmetric(horizontal: 8.0),
                     title: Text(
-                      branch,
+                      displayName, // Show clean display name
                       style: const TextStyle(fontSize: 14),
                     ),
                     value: selectedSourceBranches.contains(branch),
@@ -493,9 +505,9 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                     onChanged: (bool? value) {
                       setState(() {
                         if (value == true) {
-                          selectedSourceBranches.add(branch);
+                          selectedSourceBranches.add(branch); // Store original name
                         } else {
-                          selectedSourceBranches.remove(branch);
+                          selectedSourceBranches.remove(branch); // Remove original name
                         }
                       });
                     },
@@ -620,7 +632,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    selectedSourceBranches.join(', '),
+                                    selectedSourceBranches.map((branch) => getDisplayName(branch)).join(', '), // Show display names in summary
                                     style: const TextStyle(fontStyle: FontStyle.italic),
                                   ),
                                 ],
