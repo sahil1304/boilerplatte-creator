@@ -699,6 +699,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
   final TextEditingController _patchFolderController = TextEditingController();
   final TextEditingController _patchFileNameController = TextEditingController();
   final TextEditingController _patchFileContentController = TextEditingController();
+  final TextEditingController _customPatchNameController = TextEditingController();
 
   // List to store multiple patch file entries (now loaded from SharedPreferences)
   List<PatchFileEntry> patchEntries = [];
@@ -783,6 +784,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
     _patchFolderController.dispose();
     _patchFileNameController.dispose();
     _patchFileContentController.dispose();
+    _customPatchNameController.dispose();
     super.dispose();
   }
 
@@ -1071,7 +1073,8 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
       }
 
       final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final patchFileName = 'github_patch_timestamp.patch';
+      final customName = _customPatchNameController.text.trim();
+      final patchFileName = customName.endsWith('.patch') ? customName : '$customName.patch';
       final patchFilePath = p.join(patchesDir.path, patchFileName);
 
       setState(() {
@@ -1186,6 +1189,96 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
     // Generate a more realistic looking hash (7 characters, alphanumeric)
     final hash = content.hashCode.abs();
     return hash.toRadixString(16).padLeft(7, '0').substring(0, 7);
+  }
+
+  // Check if patch file name already exists
+  bool _isPatchNameDuplicate(String patchName) {
+    if (patchName.trim().isEmpty) return false;
+    
+    final normalizedName = patchName.trim().toLowerCase();
+    return savedPatchFiles.any((patch) => 
+      patch.fileName.toLowerCase() == normalizedName ||
+      patch.fileName.toLowerCase() == '$normalizedName.patch'
+    );
+  }
+
+  // Validate patch creation form
+  bool _isPatchFormValid() {
+    final hasEntries = patchEntries.isNotEmpty;
+    final hasValidName = _customPatchNameController.text.trim().isNotEmpty;
+    final isNameUnique = !_isPatchNameDuplicate(_customPatchNameController.text.trim());
+    final hasRequiredFields = _patchFolderController.text.trim().isNotEmpty ||
+                             _patchFileNameController.text.trim().isNotEmpty ||
+                             _patchFileContentController.text.trim().isNotEmpty;
+    
+    return hasEntries && hasValidName && isNameUnique && !hasRequiredFields;
+  }
+
+  // Build validation status widget
+  Widget _buildValidationStatus() {
+    final hasEntries = patchEntries.isNotEmpty;
+    final hasValidName = _customPatchNameController.text.trim().isNotEmpty;
+    final isNameUnique = !_isPatchNameDuplicate(_customPatchNameController.text.trim());
+    final hasRequiredFields = _patchFolderController.text.trim().isNotEmpty ||
+                             _patchFileNameController.text.trim().isNotEmpty ||
+                             _patchFileContentController.text.trim().isNotEmpty;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildValidationItem(
+          'Patch entries added',
+          hasEntries,
+          '${patchEntries.length} entry(ies)',
+        ),
+        _buildValidationItem(
+          'Custom patch name provided',
+          hasValidName,
+          _customPatchNameController.text.trim().isNotEmpty 
+              ? '"${_customPatchNameController.text.trim()}"'
+              : 'No name provided',
+        ),
+        if (hasValidName)
+          _buildValidationItem(
+            'Patch name is unique',
+            isNameUnique,
+            isNameUnique ? 'Name available' : 'Name already exists',
+          ),
+        _buildValidationItem(
+          'No pending form fields',
+          !hasRequiredFields,
+          hasRequiredFields 
+              ? 'Please complete or clear form fields'
+              : 'Form fields are clear',
+        ),
+      ],
+    );
+  }
+
+  Widget _buildValidationItem(String label, bool isValid, String status) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        children: [
+          Icon(
+            isValid ? Icons.check_circle : Icons.cancel,
+            color: isValid ? const Color(0xFF4CAF50) : Colors.red,
+            size: 14,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '$label: $status',
+              style: TextStyle(
+                color: isValid ? Colors.white70 : Colors.red,
+                fontSize: 12,
+                fontFamily: 'Orbitron',
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   // Enhanced method to remove patch entry with immediate persistence
@@ -1988,7 +2081,53 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                             ],
                           ),
                           const SizedBox(height: 16),
-                          // ... existing patch entry form and logic ...
+                          
+                          // Custom Patch Name Input
+                          TextField(
+                            controller: _customPatchNameController,
+                            style: const TextStyle(color: Colors.white, fontFamily: 'Orbitron'),
+                            decoration: InputDecoration(
+                              labelText: 'Custom Patch File Name',
+                              labelStyle: const TextStyle(color: Color(0xFFFF6B35)),
+                              hintText: 'e.g., my_custom_feature',
+                              hintStyle: const TextStyle(color: Colors.white38),
+                              border: const OutlineInputBorder(),
+                              focusedBorder: const OutlineInputBorder(
+                                borderSide: BorderSide(color: Color(0xFFFF6B35), width: 2),
+                              ),
+                              suffixIcon: _customPatchNameController.text.trim().isNotEmpty
+                                  ? Icon(
+                                      _isPatchNameDuplicate(_customPatchNameController.text.trim())
+                                          ? Icons.error
+                                          : Icons.check_circle,
+                                      color: _isPatchNameDuplicate(_customPatchNameController.text.trim())
+                                          ? Colors.red
+                                          : const Color(0xFF4CAF50),
+                                    )
+                                  : null,
+                              helperText: _customPatchNameController.text.trim().isNotEmpty
+                                  ? _isPatchNameDuplicate(_customPatchNameController.text.trim())
+                                      ? '❌ This name already exists'
+                                      : '✅ Name is available'
+                                  : null,
+                              helperStyle: TextStyle(
+                                color: _customPatchNameController.text.trim().isNotEmpty
+                                    ? _isPatchNameDuplicate(_customPatchNameController.text.trim())
+                                        ? Colors.red
+                                        : const Color(0xFF4CAF50)
+                                    : Colors.white54,
+                                fontSize: 12,
+                                fontFamily: 'Orbitron',
+                              ),
+                            ),
+                            onChanged: (value) {
+                              setState(() {
+                                // Trigger rebuild to update validation UI
+                              });
+                            },
+                          ),
+                          const SizedBox(height: 16),
+                          
                           // Patch entry form
                           Row(
                             children: [
@@ -2068,7 +2207,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                               const SizedBox(width: 12),
                               if (patchEntries.isNotEmpty) ...[
                                 ElevatedButton.icon(
-                                  onPressed: isCreatingPatch ? null : createPatchFile,
+                                  onPressed: (isCreatingPatch || !_isPatchFormValid()) ? null : createPatchFile,
                                   icon: isCreatingPatch
                                       ? const SizedBox(
                                     width: 18,
@@ -2081,10 +2220,14 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                                     style: const TextStyle(color: Colors.black, fontFamily: 'Orbitron'),
                                   ),
                                   style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFF4CAF50),
+                                    backgroundColor: _isPatchFormValid() 
+                                        ? const Color(0xFF4CAF50) 
+                                        : Colors.grey,
                                     foregroundColor: Colors.black,
-                                    elevation: 10,
-                                    shadowColor: const Color(0xFF4CAF50),
+                                    elevation: _isPatchFormValid() ? 10 : 0,
+                                    shadowColor: _isPatchFormValid() 
+                                        ? const Color(0xFF4CAF50) 
+                                        : Colors.transparent,
                                   ),
                                 ),
                                 const SizedBox(width: 12),
@@ -2096,7 +2239,8 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                                     }
                                     setState(() {
                                       patchEntries.clear();
-                                      result += '✅ Cleared all patch entries from persistent storage.\n';
+                                      _customPatchNameController.clear();
+                                      result += '✅ Cleared all patch entries and custom name from persistent storage.\n';
                                     });
                                   },
                                   icon: const Icon(Icons.clear_all, color: Colors.black),
@@ -2137,6 +2281,54 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                             ],
                           ),
                           const SizedBox(height: 16),
+
+                          // Validation Status
+                          if (patchEntries.isNotEmpty) ...[
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withOpacity(0.2),
+                                border: Border.all(
+                                  color: _isPatchFormValid() 
+                                      ? const Color(0xFF4CAF50) 
+                                      : const Color(0xFFFF6B35),
+                                  width: 1,
+                                ),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        _isPatchFormValid() ? Icons.check_circle : Icons.info,
+                                        color: _isPatchFormValid() 
+                                            ? const Color(0xFF4CAF50) 
+                                            : const Color(0xFFFF6B35),
+                                        size: 16,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        'Validation Status',
+                                        style: TextStyle(
+                                          color: _isPatchFormValid() 
+                                              ? const Color(0xFF4CAF50) 
+                                              : const Color(0xFFFF6B35),
+                                          fontWeight: FontWeight.bold,
+                                          fontFamily: 'Orbitron',
+                                          fontSize: 14,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  _buildValidationStatus(),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                          ],
 
                           // Display current patch entries
                           Row(
@@ -2260,6 +2452,57 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                               ],
                             ),
                           ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 28),
+
+                    // Saved Patch Files Section
+                    FuturisticGlassPanel(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.file_present, color: Color(0xFF4CAF50), size: 24),
+                              const SizedBox(width: 10),
+                              const Text(
+                                'Saved Patch Files',
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF4CAF50),
+                                  fontFamily: 'Orbitron',
+                                  letterSpacing: 1.1,
+                                ),
+                              ),
+                              const Spacer(),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF4CAF50),
+                                  borderRadius: BorderRadius.circular(6),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: const Color(0xFF4CAF50).withOpacity(0.3),
+                                      blurRadius: 4,
+                                    ),
+                                  ],
+                                ),
+                                child: Text(
+                                  '${savedPatchFiles.length} FILES',
+                                  style: const TextStyle(
+                                    color: Colors.black,
+                                    fontWeight: FontWeight.bold,
+                                    fontFamily: 'Orbitron',
+                                    fontSize: 8,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          _buildSavedPatchFilesList(),
                         ],
                       ),
                     ),
