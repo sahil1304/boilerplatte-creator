@@ -69,6 +69,21 @@ class PatchFileEntry {
   });
 }
 
+// New class for saved patch files
+class SavedPatchFile {
+  String fileName;
+  String filePath;
+  DateTime createdAt;
+  int entriesCount;
+
+  SavedPatchFile({
+    required this.fileName,
+    required this.filePath,
+    required this.createdAt,
+    required this.entriesCount,
+  });
+}
+
 void main() {
   runApp(const GitRepoReaderApp());
 }
@@ -172,6 +187,9 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
   // List to store multiple patch file entries
   List<PatchFileEntry> patchEntries = [];
 
+  // List to store saved patch files
+  List<SavedPatchFile> savedPatchFiles = [];
+
   List<String> localBranches = [];
   List<String> remoteBranches = [];
   List<String> allBranches = []; // Combined list for merge operations
@@ -232,6 +250,103 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
     return null;
   }
 
+  // New method to load saved patch files
+  Future<void> loadSavedPatchFiles() async {
+    if (folderPath == null) return;
+
+    setState(() {
+      savedPatchFiles.clear();
+    });
+
+    try {
+      final patchesDir = Directory(p.join(folderPath!, 'patches'));
+      if (!await patchesDir.exists()) {
+        return; // No patches directory, no saved patches
+      }
+
+      final patchFiles = await patchesDir.list()
+          .where((entity) => entity is File && entity.path.endsWith('.patch'))
+          .cast<File>()
+          .toList();
+
+      for (final patchFile in patchFiles) {
+        final stat = await patchFile.stat();
+        final content = await patchFile.readAsString();
+
+        // Count entries by counting "diff --git" occurrences
+        final entriesCount = 'diff --git'.allMatches(content).length;
+
+        savedPatchFiles.add(SavedPatchFile(
+          fileName: p.basename(patchFile.path),
+          filePath: patchFile.path,
+          createdAt: stat.modified,
+          entriesCount: entriesCount,
+        ));
+      }
+
+      // Sort by creation date (newest first)
+      savedPatchFiles.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+      setState(() {
+        result += 'Loaded ${savedPatchFiles.length} saved patch files.\n';
+      });
+
+    } catch (e) {
+      setState(() {
+        result += 'Error loading saved patch files: $e\n';
+      });
+    }
+  }
+
+  // New method to apply a saved patch file
+  Future<void> applySavedPatch(SavedPatchFile patchFile) async {
+    if (folderPath == null) return;
+
+    setState(() {
+      result += '\n--- Applying Patch File ---\n';
+      result += 'Applying: ${patchFile.fileName}\n';
+      isLoading = true;
+    });
+
+    try {
+      final applyResult = await runGit(['apply', patchFile.filePath], folderPath!);
+
+      setState(() {
+        if (applyResult.contains('Error:')) {
+          result += 'Failed to apply patch: $applyResult\n';
+        } else {
+          result += 'Patch applied successfully!\n';
+          result += 'Applied ${patchFile.entriesCount} file(s) to the project.\n';
+        }
+        isLoading = false;
+      });
+
+    } catch (e) {
+      setState(() {
+        result += 'Error applying patch: $e\n';
+        isLoading = false;
+      });
+    }
+  }
+
+  // New method to delete a saved patch file
+  Future<void> deleteSavedPatch(SavedPatchFile patchFile) async {
+    try {
+      final file = File(patchFile.filePath);
+      await file.delete();
+
+      setState(() {
+        savedPatchFiles.remove(patchFile);
+        result += 'Deleted patch file: ${patchFile.fileName}\n';
+      });
+
+    } catch (e) {
+      setState(() {
+        result += 'Error deleting patch file: $e\n';
+      });
+    }
+  }
+
   // New method to add patch entry
   void _addPatchEntry() {
     if (_patchFolderController.text.trim().isEmpty ||
@@ -259,7 +374,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
     });
   }
 
-  // New method to create patch file
+  // Modified method to create patch file in project directory
   Future<void> createPatchFile() async {
     if (patchEntries.isEmpty) {
       setState(() {
@@ -268,8 +383,12 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
       return;
     }
 
-    String? selectedDir = await FilePicker.platform.getDirectoryPath();
-    if (selectedDir == null) return;
+    if (folderPath == null) {
+      setState(() {
+        result += '\nNo project selected. Please create or select a project first.\n';
+      });
+      return;
+    }
 
     setState(() {
       isCreatingPatch = true;
@@ -277,9 +396,15 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
     });
 
     try {
+      // Create patches directory if it doesn't exist
+      final patchesDir = Directory(p.join(folderPath!, 'patches'));
+      if (!await patchesDir.exists()) {
+        await patchesDir.create(recursive: true);
+      }
+
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       final patchFileName = 'custom_patch_$timestamp.patch';
-      final patchFilePath = p.join(selectedDir, patchFileName);
+      final patchFilePath = p.join(patchesDir.path, patchFileName);
 
       StringBuffer patchContent = StringBuffer();
 
@@ -333,21 +458,17 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
 
       setState(() {
         result += 'Patch file created successfully!\n';
-        result += 'Location: $patchFilePath\n';
+        result += 'Location: patches/${patchFileName}\n';
         result += 'Entries included: ${patchEntries.length}\n';
-        result += 'To apply: git apply ${p.basename(patchFilePath)}\n';
-
-        // Debug info
-        for (int i = 0; i < patchEntries.length; i++) {
-          final entry = patchEntries[i];
-          final lines = entry.fileContent.split('\n');
-          result += 'Entry ${i + 1}: ${lines.length} lines\n';
-        }
+        result += 'To apply: git apply patches/${patchFileName}\n';
 
         // Clear patch entries after successful creation
         patchEntries.clear();
         isCreatingPatch = false;
       });
+
+      // Reload saved patch files to include the new one
+      await loadSavedPatchFiles();
 
     } catch (e) {
       setState(() {
@@ -384,6 +505,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
       allBranches = [];
       widgetBranches = [];
       featureBranches = [];
+      savedPatchFiles = [];
       selectedSourceBranches.clear();
       destinationBranch = "main"; // Always reset to "main"
     });
@@ -440,8 +562,9 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
         isCloning = false;
       });
 
-      // Load branches after successful clone
+      // Load branches and patch files after successful clone
       await loadBranches();
+      await loadSavedPatchFiles();
 
     } catch (e) {
       setState(() {
@@ -464,6 +587,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
       allBranches = [];
       widgetBranches = [];
       featureBranches = [];
+      savedPatchFiles = [];
       selectedSourceBranches.clear();
       destinationBranch = "main"; // Always reset to "main"
     });
@@ -506,6 +630,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
     }
 
     await loadBranches();
+    await loadSavedPatchFiles();
   }
 
   Future<void> loadBranches() async {
@@ -640,7 +765,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
 
     setState(() {
       result += '\n--- Merging Branches ---\n';
-      result += 'Merging  [0m${selectedSourceBranches.join(', ')} into $destinationBranch\n';
+      result += 'Merging ${selectedSourceBranches.join(', ')} into $destinationBranch\n';
       isLoading = true;
       mergeProgress = 0.0;
     });
@@ -874,19 +999,93 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
     );
   }
 
+  Widget _buildSavedPatchFilesList() {
+    if (savedPatchFiles.isEmpty) {
+      return Container(
+        height: 120,
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.18),
+          border: Border.all(color: Colors.white24),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const Center(
+          child: Text(
+            'No saved patch files found',
+            style: TextStyle(
+              color: Colors.white54,
+              fontStyle: FontStyle.italic,
+              fontFamily: 'Orbitron',
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      height: 180,
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.18),
+        border: Border.all(color: const Color(0xFF4CAF50).withOpacity(0.3)),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: ListView.builder(
+        itemCount: savedPatchFiles.length,
+        itemBuilder: (context, index) {
+          final patchFile = savedPatchFiles[index];
+          return ListTile(
+            dense: true,
+            leading: const Icon(Icons.file_present, color: Color(0xFF4CAF50), size: 20),
+            title: Text(
+              patchFile.fileName,
+              style: const TextStyle(color: Colors.white, fontFamily: 'Orbitron', fontSize: 14),
+            ),
+            subtitle: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${patchFile.entriesCount} entries',
+                  style: const TextStyle(color: Colors.white54, fontFamily: 'Orbitron', fontSize: 12),
+                ),
+                Text(
+                  'Created: ${patchFile.createdAt.day}/${patchFile.createdAt.month}/${patchFile.createdAt.year}',
+                  style: const TextStyle(color: Colors.white38, fontFamily: 'Orbitron', fontSize: 11),
+                ),
+              ],
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.play_arrow, color: Color(0xFF4CAF50), size: 18),
+                  onPressed: isLoading ? null : () => applySavedPatch(patchFile),
+                  tooltip: 'Apply Patch',
+                ),
+                IconButton(
+                  icon: const Icon(Icons.delete, color: Colors.red, size: 18),
+                  onPressed: () => deleteSavedPatch(patchFile),
+                  tooltip: 'Delete Patch',
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       extendBodyBehindAppBar: true,
       body: Center(
         child: SingleChildScrollView(
-            child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 32),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                  // Center the title horizontally
-                  Row(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 32),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Center the title horizontally
+                Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     ShaderMask(
@@ -947,6 +1146,18 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                               foregroundColor: Colors.black,
                               elevation: 10,
                               shadowColor: const Color(0xFFB388FF),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          ElevatedButton.icon(
+                            onPressed: pickFolderAndReadRepo,
+                            icon: const Icon(Icons.folder_open, color: Colors.black),
+                            label: const Text('Select Existing Project', style: TextStyle(color: Colors.black, fontFamily: 'Orbitron')),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF00E5FF),
+                              foregroundColor: Colors.black,
+                              elevation: 10,
+                              shadowColor: const Color(0xFF00E5FF),
                             ),
                           ),
                         ],
@@ -1125,96 +1336,156 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                 ),
                 const SizedBox(height: 28),
 
+                // NEW: Saved Patch Files Section
+                if (folderPath != null) ...[
+                  FuturisticGlassPanel(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.folder_special, color: Color(0xFF4CAF50), size: 24),
+                            const SizedBox(width: 10),
+                            const Text(
+                              'Saved Patch Files',
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF4CAF50),
+                                fontFamily: 'Orbitron',
+                                letterSpacing: 1.1,
+                              ),
+                            ),
+                            const Spacer(),
+                            IconButton(
+                              onPressed: loadSavedPatchFiles,
+                              icon: const Icon(Icons.refresh, color: Color(0xFF4CAF50)),
+                              tooltip: 'Refresh Patch Files',
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+
+                        Text(
+                          'Saved patch files (${savedPatchFiles.length})',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF4CAF50),
+                            fontFamily: 'Orbitron',
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        _buildSavedPatchFilesList(),
+
+                        if (savedPatchFiles.isNotEmpty) ...[
+                          const SizedBox(height: 12),
+                          const Text(
+                            '💡 Click the play button to apply a patch file to your project.',
+                            style: TextStyle(
+                              color: Colors.white54,
+                              fontSize: 12,
+                              fontStyle: FontStyle.italic,
+                              fontFamily: 'Orbitron',
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 28),
+                ],
+
                 if (folderPath != null && !isCloning) ...[
-        // Merge Section
-        FuturisticGlassPanel(
-        child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-            if (isLoading && mergeProgress > 0.0) ...[
-      Center(
-      child: Column(
-      children: [
-        SizedBox(
-        width: 260,
-        child: LinearProgressIndicator(
-          value: mergeProgress,
-          minHeight: 10,
-          backgroundColor: Colors.white24,
-          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFB388FF)),
+                  // Merge Section
+                  FuturisticGlassPanel(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (isLoading && mergeProgress > 0.0) ...[
+                          Center(
+                            child: Column(
+                              children: [
+                                SizedBox(
+                                  width: 260,
+                                  child: LinearProgressIndicator(
+                                    value: mergeProgress,
+                                    minHeight: 10,
+                                    backgroundColor: Colors.white24,
+                                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFB388FF)),
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                Text(
+                                  '${(mergeProgress * 100).toInt()}% ${mergeProgress < 1.0 ? 'completing' : 'completed'}',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontFamily: 'Orbitron',
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                        ] else if (isLoading) ...[
+                          const Center(child: CircularProgressIndicator()),
+                          const SizedBox(height: 20),
+                        ] else ...[
+                          _buildBranchSection('List of widgets', widgetBranches, const Color(0xFF7C4DFF)),
+                          _buildBranchSection('List of features', featureBranches, const Color(0xFF00E5FF)),
+                          const SizedBox(height: 18),
+                          Row(
+                            children: [
+                              ElevatedButton.icon(
+                                onPressed: (selectedSourceBranches.isEmpty || isLoading)
+                                    ? null
+                                    : mergeBranches,
+                                icon: isLoading
+                                    ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFB388FF)),
+                                )
+                                    : const Icon(Icons.merge_type, color: Colors.black),
+                                label: const Text('Apply in project', style: TextStyle(color: Colors.black, fontFamily: 'Orbitron')),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFFB388FF),
+                                  foregroundColor: Colors.black,
+                                  elevation: 10,
+                                  shadowColor: const Color(0xFFB388FF),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              ElevatedButton.icon(
+                                onPressed: () {
+                                  setState(() {
+                                    selectedSourceBranches.clear();
+                                  });
+                                },
+                                icon: const Icon(Icons.clear, color: Colors.black),
+                                label: const Text('Clear Selection', style: TextStyle(color: Colors.black, fontFamily: 'Orbitron')),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF00E5FF),
+                                  foregroundColor: Colors.black,
+                                  elevation: 10,
+                                  shadowColor: const Color(0xFF00E5FF),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 28),
+                ],
+              ],
+            ),
+          ),
         ),
       ),
-      const SizedBox(height: 12),
-      Text(
-        '${(mergeProgress * 100).toInt()}% ${mergeProgress < 1.0 ? 'completing' : 'completed'}',
-        style: const TextStyle(
-          color: Colors.white,
-          fontFamily: 'Orbitron',
-          fontWeight: FontWeight.bold,
-          fontSize: 16,
-        ),
-      ),
-      ],
-    ),
-    ),
-    const SizedBox(height: 20),
-    ] else if (isLoading) ...[
-    const Center(child: CircularProgressIndicator()),
-    const SizedBox(height: 20),
-    ] else ...[
-    _buildBranchSection('List of widgets', widgetBranches, const Color(0xFF7C4DFF)),
-    _buildBranchSection('List of features', featureBranches, const Color(0xFF00E5FF)),
-    const SizedBox(height: 18),
-    Row(
-    children: [
-    ElevatedButton.icon(
-    onPressed: (selectedSourceBranches.isEmpty || isLoading)
-    ? null
-        : mergeBranches,
-    icon: isLoading
-    ? const SizedBox(
-    width: 18,
-    height: 18,
-    child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFB388FF)),
-    )
-        : const Icon(Icons.merge_type, color: Colors.black),
-    label: const Text('Apply in project', style: TextStyle(color: Colors.black, fontFamily: 'Orbitron')),
-    style: ElevatedButton.styleFrom(
-    backgroundColor: const Color(0xFFB388FF),
-    foregroundColor: Colors.black,
-    elevation: 10,
-    shadowColor: const Color(0xFFB388FF),
-    ),
-    ),
-    const SizedBox(width: 12),
-    ElevatedButton.icon(
-    onPressed: () {
-    setState(() {
-    selectedSourceBranches.clear();
-    });
-    },
-    icon: const Icon(Icons.clear, color: Colors.black),
-    label: const Text('Clear Selection', style: TextStyle(color: Colors.black, fontFamily: 'Orbitron')),
-    style: ElevatedButton.styleFrom(
-    backgroundColor: const Color(0xFF00E5FF),
-    foregroundColor: Colors.black,
-    elevation: 10,
-    shadowColor: const Color(0xFF00E5FF),
-    ),
-    ),
-    ],
-    ),
-    ],
-    ],
-    ),
-    ),
-    const SizedBox(height: 28),
-    ],
-    ],
-    ),
-    ),
-    ),
-    ),
     );
   }
 }
