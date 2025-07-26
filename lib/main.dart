@@ -1,9 +1,60 @@
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:process_run/process_run.dart';
+import 'package:google_fonts/google_fonts.dart';
+
+class FuturisticGlassPanel extends StatelessWidget {
+  final Widget child;
+  final double? width;
+  final double? height;
+  final EdgeInsetsGeometry? padding;
+  final EdgeInsetsGeometry? margin;
+  const FuturisticGlassPanel({
+    super.key,
+    required this.child,
+    this.width,
+    this.height,
+    this.padding,
+    this.margin,
+  });
+  @override
+  Widget build(BuildContext context) {
+    final panel = Container(
+      width: width,
+      height: height,
+      margin: margin,
+      padding: padding ?? const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        gradient: LinearGradient(
+          colors: [
+            const Color(0x44B388FF),
+            const Color(0x220D001A),
+            const Color(0x33A259FF),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        border: Border.all(
+          width: 2.5,
+          color: const Color(0xFFB388FF).withOpacity(0.5),
+        ),
+      ),
+      child: child,
+    );
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(24),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        child: panel,
+      ),
+    );
+  }
+}
 
 void main() {
   runApp(const GitRepoReaderApp());
@@ -11,65 +62,68 @@ void main() {
 
 class GitRepoReaderApp extends StatelessWidget {
   const GitRepoReaderApp({super.key});
-
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'GitHub Repo Reader',
       theme: ThemeData(
         brightness: Brightness.dark,
-        scaffoldBackgroundColor: const Color(0xFF181A1B),
-        primaryColor: const Color(0xFF1DE9B6),
+        scaffoldBackgroundColor: Colors.transparent,
+        primaryColor: const Color(0xFFB388FF),
         colorScheme: ColorScheme.dark(
-          primary: const Color(0xFF1DE9B6),
-          secondary: const Color(0xFF00BFAE),
-          background: const Color(0xFF181A1B),
-          surface: const Color(0xFF23272A),
+          primary: const Color(0xFFB388FF),
+          secondary: const Color(0xFF00E5FF),
+          background: Colors.transparent,
+          surface: Colors.transparent,
         ),
-        cardColor: const Color(0xCC23272A), // semi-transparent
-        dialogBackgroundColor: const Color(0xCC23272A),
-        canvasColor: const Color(0xFF181A1B),
+        cardColor: const Color(0x220D001A),
+        dialogBackgroundColor: const Color(0x330D001A),
+        canvasColor: Colors.transparent,
         appBarTheme: const AppBarTheme(
-          backgroundColor: Color(0xFF23272A),
+          backgroundColor: Colors.transparent,
           foregroundColor: Colors.white,
           elevation: 0,
         ),
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
-          fillColor: const Color(0x33FFFFFF),
+          fillColor: const Color(0x22B388FF),
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
-            borderSide: const BorderSide(color: Color(0xFF1DE9B6)),
+            borderRadius: BorderRadius.circular(16),
+            borderSide: const BorderSide(color: Color(0xFFB388FF)),
           ),
           focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8),
-            borderSide: const BorderSide(color: Color(0xFF1DE9B6), width: 2),
+            borderRadius: BorderRadius.circular(16),
+            borderSide: const BorderSide(color: Color(0xFFB388FF), width: 2),
           ),
-          labelStyle: const TextStyle(color: Color(0xFF1DE9B6)),
+          labelStyle: const TextStyle(color: Color(0xFFB388FF)),
         ),
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFF1DE9B6),
+            backgroundColor: const Color(0xFFB388FF),
             foregroundColor: Colors.black,
             shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(16),
             ),
-            textStyle: const TextStyle(fontWeight: FontWeight.bold),
+            textStyle: GoogleFonts.orbitron(fontWeight: FontWeight.bold, fontSize: 16),
+            shadowColor: const Color(0xFFB388FF),
+            elevation: 10,
           ),
         ),
         checkboxTheme: CheckboxThemeData(
-          fillColor: MaterialStateProperty.all(const Color(0xFF1DE9B6)),
+          // fillColor: MaterialStateProperty.all(const Color(0xFF00E5FF)),
           checkColor: MaterialStateProperty.all(Colors.black),
         ),
-        textTheme: const TextTheme(
-          bodyLarge: TextStyle(color: Colors.white),
-          bodyMedium: TextStyle(color: Colors.white70),
-          bodySmall: TextStyle(color: Colors.white60),
-          titleLarge: TextStyle(color: Color(0xFF1DE9B6), fontWeight: FontWeight.bold),
-          titleMedium: TextStyle(color: Color(0xFF1DE9B6)),
+        textTheme: GoogleFonts.orbitronTextTheme(
+          const TextTheme(
+            bodyLarge: TextStyle(color: Colors.white),
+            bodyMedium: TextStyle(color: Colors.white70),
+            bodySmall: TextStyle(color: Colors.white60),
+            titleLarge: TextStyle(color: Color(0xFFB388FF), fontWeight: FontWeight.bold),
+            titleMedium: TextStyle(color: Color(0xFFB388FF)),
+          ),
         ),
         dividerColor: Colors.white24,
-        iconTheme: const IconThemeData(color: Color(0xFF1DE9B6)),
+        iconTheme: const IconThemeData(color: Color(0xFF00E5FF), shadows: [Shadow(color: Color(0xFFB388FF), blurRadius: 8)]),
       ),
       home: const RepoReaderScreen(),
       debugShowCheckedModeBanner: false,
@@ -89,6 +143,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
   String result = '';
   bool isCloning = false;
   bool isLoading = false;
+  double mergeProgress = 0.0; // Progress for merge operation
 
   // Hardcoded repository URL
   static const String repoUrl = "https://github.com/SahilJadhav12/mergingdemo.git";
@@ -421,29 +476,45 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
 
     setState(() {
       result += '\n--- Merging Branches ---\n';
-      result += 'Merging ${selectedSourceBranches.join(', ')} into $destinationBranch\n';
+      result += 'Merging  [0m${selectedSourceBranches.join(', ')} into $destinationBranch\n';
       isLoading = true;
+      mergeProgress = 0.0;
     });
 
     try {
-      // First, fetch latest changes from remote
-      await runGit(['fetch', 'origin'], folderPath!);
+      final int totalSteps = 3 + selectedSourceBranches.length; // fetch, checkout, pull, merges
+      int currentStep = 0;
 
-      // Checkout the destination branch
+      // 1. Fetch latest changes from remote
+      await runGit(['fetch', 'origin'], folderPath!);
+      currentStep++;
+      setState(() {
+        mergeProgress = currentStep / totalSteps;
+      });
+
+      // 2. Checkout the destination branch
       var checkoutOutput = await runGit(['checkout', destinationBranch], folderPath!);
       setState(() {
         result += 'Checkout output: $checkoutOutput\n';
       });
+      currentStep++;
+      setState(() {
+        mergeProgress = currentStep / totalSteps;
+      });
 
-      // Pull latest changes for destination branch if it's a local branch
+      // 3. Pull latest changes for destination branch if it's a local branch
       if (localBranches.contains(destinationBranch)) {
         var pullOutput = await runGit(['pull', 'origin', destinationBranch], folderPath!);
         setState(() {
           result += 'Pull output: $pullOutput\n';
         });
       }
+      currentStep++;
+      setState(() {
+        mergeProgress = currentStep / totalSteps;
+      });
 
-      // Perform the merge for each selected source branch
+      // 4. Perform the merge for each selected source branch
       bool allMergesSuccessful = true;
       for (String sourceBranch in selectedSourceBranches) {
         setState(() {
@@ -453,6 +524,11 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
         var mergeOutput = await runGit(['merge', sourceBranch], folderPath!);
         setState(() {
           result += 'Merge output: $mergeOutput\n';
+        });
+
+        currentStep++;
+        setState(() {
+          mergeProgress = currentStep / totalSteps;
         });
 
         if (mergeOutput.contains('Error:')) {
@@ -467,6 +543,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
       if (allMergesSuccessful) {
         setState(() {
           result += 'All merges completed successfully!\n';
+          mergeProgress = 1.0;
         });
       }
 
@@ -478,6 +555,9 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
 
     setState(() {
       isLoading = false;
+      Future.delayed(const Duration(seconds: 1), () {
+        if (mounted) setState(() { mergeProgress = 0.0; });
+      });
     });
 
     // Refresh branches after merge
@@ -485,105 +565,94 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
   }
 
   Widget _buildBranchSection(String title, List<String> branches, Color color) {
-    return Card(
-      margin: const EdgeInsets.symmetric(vertical: 8.0),
-      elevation: 4,
-      color: const Color(0xCC23272A), // semi-transparent
-      child: Padding(
-        padding: const EdgeInsets.all(12.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  title == 'List of widgets' ? Icons.widgets : Icons.star,
+    return FuturisticGlassPanel(
+      margin: const EdgeInsets.symmetric(vertical: 12.0),
+      padding: const EdgeInsets.all(18.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                title == 'List of widgets' ? Icons.widgets : Icons.star,
+                color: color,
+                size: 22,
+                shadows: [
+                  Shadow(color: color.withOpacity(0.7), blurRadius: 12, offset: const Offset(0, 0)),
+                ],
+              ),
+              const SizedBox(width: 10),
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
                   color: color,
-                  size: 20,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: color,
-                    shadows: [
-                      Shadow(
-                        color: Colors.black.withOpacity(0.5),
-                        blurRadius: 4,
-                        offset: const Offset(1, 1),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: color.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    '${branches.length}',
-                    style: TextStyle(
-                      color: color,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
+                  fontFamily: 'Orbitron',
+                  shadows: [
+                    Shadow(
+                      color: color.withOpacity(0.5),
+                      blurRadius: 8,
+                      offset: const Offset(1, 1),
                     ),
-                  ),
+                  ],
                 ),
+              ),
+              // Removed count container
+            ],
+          ),
+          const SizedBox(height: 10),
+          Container(
+            height: 120,
+            decoration: BoxDecoration(
+              color: Colors.black.withOpacity(0.18),
+              border: Border.all(color: color.withOpacity(0.18)),
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(color: color.withOpacity(0.12), blurRadius: 12, offset: const Offset(0, 4)),
               ],
             ),
-            const SizedBox(height: 8),
-            Container(
-              height: 120,
-              decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.2),
-                border: Border.all(color: Colors.white24),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: branches.isEmpty
-                  ? Center(
-                child: Text(
-                  'No ${title.toLowerCase()} available',
-                  style: TextStyle(
-                    color: Colors.white54,
-                    fontStyle: FontStyle.italic,
-                  ),
-                ),
-              )
-                  : ListView.builder(
-                itemCount: branches.length,
-                itemBuilder: (context, index) {
-                  final branch = branches[index];
-                  final displayName = getDisplayName(branch); // Use display name for UI
-                  return CheckboxListTile(
-                    dense: true,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 8.0),
-                    tileColor: Colors.transparent,
-                    title: Text(
-                      displayName, // Show clean display name
-                      style: const TextStyle(fontSize: 14, color: Colors.white),
+            child: branches.isEmpty
+                ? Center(
+                    child: Text(
+                      'No ${title.toLowerCase()} available',
+                      style: TextStyle(
+                        color: Colors.white54,
+                        fontStyle: FontStyle.italic,
+                        fontFamily: 'Orbitron',
+                      ),
                     ),
-                    value: selectedSourceBranches.contains(branch),
-                    activeColor: color,
-                    checkColor: Colors.black,
-                    onChanged: (bool? value) {
-                      setState(() {
-                        if (value == true) {
-                          selectedSourceBranches.add(branch); // Store original name
-                        } else {
-                          selectedSourceBranches.remove(branch); // Remove original name
-                        }
-                      });
+                  )
+                : ListView.builder(
+                    itemCount: branches.length,
+                    itemBuilder: (context, index) {
+                      final branch = branches[index];
+                      final displayName = getDisplayName(branch);
+                      return CheckboxListTile(
+                        dense: true,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 8.0),
+                        tileColor: Colors.transparent,
+                        title: Text(
+                          displayName,
+                          style: const TextStyle(fontSize: 15, color: Colors.white, fontFamily: 'Orbitron'),
+                        ),
+                        value: selectedSourceBranches.contains(branch),
+                        activeColor: color,
+                        checkColor: Colors.black,
+                        onChanged: (bool? value) {
+                          setState(() {
+                            if (value == true) {
+                              selectedSourceBranches.add(branch);
+                            } else {
+                              selectedSourceBranches.remove(branch);
+                            }
+                          });
+                        },
+                      );
                     },
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
+                  ),
+          ),
+        ],
       ),
     );
   }
@@ -591,198 +660,236 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Boiler platte code automatic', style: TextStyle(color: Color(0xFF1DE9B6), fontWeight: FontWeight.bold)),
-        backgroundColor: const Color(0xFF23272A),
-        elevation: 0,
-      ),
-      body: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: Column(
-            children: [
-              // Clone Section
-              Card(
-                color: const Color(0xCC23272A),
-                elevation: 6,
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Create Flutter project', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1DE9B6))),
-                      const SizedBox(height: 10),
-                      TextField(
-                        controller: _folderNameController,
-                        style: const TextStyle(color: Colors.white),
-                        decoration: const InputDecoration(
-                          labelText: 'Folder Name (optional)',
-                          labelStyle: TextStyle(color: Color(0xFF1DE9B6)),
-                          hintText: '',
-                          border: OutlineInputBorder(),
+      extendBodyBehindAppBar: true,
+      body: Center(
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 32),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Center the title horizontally
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    ShaderMask(
+                      shaderCallback: (Rect bounds) {
+                        return const LinearGradient(
+                          colors: [Color(0xFFB388FF), Color(0xFF00E5FF)],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ).createShader(bounds);
+                      },
+                      child: const Text(
+                        'CodeCrafter',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'Orbitron',
+                          fontSize: 22,
+                          letterSpacing: 1.2,
+                          shadows: [Shadow(color: Color(0xFFB388FF), blurRadius: 12)],
                         ),
                       ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          ElevatedButton.icon(
-                            onPressed: isCloning ? null : cloneRepository,
-                            icon: isCloning
-                                ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF1DE9B6)),
-                            )
-                                : const Icon(Icons.cloud_download, color: Colors.black),
-                            label: Text(isCloning ? 'Creating Project...' : 'Create Project', style: const TextStyle(color: Colors.black)),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF1DE9B6),
-                              foregroundColor: Colors.black,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-              ),
-              const SizedBox(height: 20),
-
-              if (folderPath != null && !isCloning) ...[
-                // Merge Section
-                Card(
-                  color: const Color(0xCC23272A),
-                  elevation: 6,
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
+                const SizedBox(height: 24),
+                  // Clone Section
+                  FuturisticGlassPanel(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        const Text('Create Flutter project', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFFB388FF), fontFamily: 'Orbitron', letterSpacing: 1.1)),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: _folderNameController,
+                          style: const TextStyle(color: Colors.white, fontFamily: 'Orbitron'),
+                          decoration: const InputDecoration(
+                            labelText: 'Folder Name (optional)',
+                            labelStyle: TextStyle(color: Color(0xFFB388FF)),
+                            border: OutlineInputBorder(),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
                         Row(
                           children: [
-                            const Text('Branch Selection', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1DE9B6))),
-                            const Spacer(),
                             ElevatedButton.icon(
-                              onPressed: isLoading ? null : loadBranches,
-                              icon: isLoading
+                              onPressed: isCloning ? null : cloneRepository,
+                              icon: isCloning
                                   ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF1DE9B6)),
-                              )
-                                  : const Icon(Icons.refresh, color: Colors.black),
-                              label: const Text('Refresh', style: TextStyle(color: Colors.black)),
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFB388FF)),
+                                    )
+                                  : const Icon(Icons.cloud_download, color: Colors.black),
+                              label: Text(isCloning ? 'Creating Project...' : 'Create Project', style: const TextStyle(color: Colors.black, fontFamily: 'Orbitron')),
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF1DE9B6),
+                                backgroundColor: const Color(0xFFB388FF),
                                 foregroundColor: Colors.black,
+                                elevation: 10,
+                                shadowColor: const Color(0xFFB388FF),
                               ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 10),
-
-                        if (isLoading) ...[
-                          const Center(child: CircularProgressIndicator()),
-                          const SizedBox(height: 20),
-                        ] else ...[
-                          // Widget branches section
-                          _buildBranchSection('List of widgets', widgetBranches, Colors.blue),
-
-                          // Feature branches section
-                          _buildBranchSection('List of features', featureBranches, Colors.green),
-
-                          const SizedBox(height: 15),
-
-                          // Selected branches summary
-                          if (selectedSourceBranches.isNotEmpty) ...[
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: Colors.grey.shade100,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: Colors.grey.shade300),
-                              ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 28),
+                  if (folderPath != null && !isCloning) ...[
+                    // Merge Section
+                    FuturisticGlassPanel(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Row(
+                          //   children: [
+                          //     // const Text('Branch Selection', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFFB388FF), fontFamily: 'Orbitron', letterSpacing: 1.1)),
+                          //     // const Spacer(),
+                          //     ElevatedButton.icon(
+                          //       onPressed: isLoading ? null : loadBranches,
+                          //       icon: isLoading
+                          //           ? const SizedBox(
+                          //               width: 18,
+                          //               height: 18,
+                          //               child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFB388FF)),
+                          //             )
+                          //           : const Icon(Icons.refresh, color: Colors.black),
+                          //       label: const Text('Refresh', style: TextStyle(color: Colors.black, fontFamily: 'Orbitron')),
+                          //       style: ElevatedButton.styleFrom(
+                          //         backgroundColor: const Color(0xFFB388FF),
+                          //         foregroundColor: Colors.black,
+                          //         elevation: 10,
+                          //         shadowColor: const Color(0xFFB388FF),
+                          //       ),
+                          //     ),
+                          //   ],
+                          // ),
+                          // const SizedBox(height: 12),
+                          if (isLoading && mergeProgress > 0.0) ...[
+                            Center(
                               child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Text(
-                                    'Selected branches:',
-                                    style: TextStyle(fontWeight: FontWeight.bold),
+                                  SizedBox(
+                                    width: 260,
+                                    child: LinearProgressIndicator(
+                                      value: mergeProgress,
+                                      minHeight: 10,
+                                      backgroundColor: Colors.white24,
+                                      valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFB388FF)),
+                                    ),
                                   ),
-                                  const SizedBox(height: 4),
+                                  const SizedBox(height: 12),
                                   Text(
-                                    selectedSourceBranches.map((branch) => getDisplayName(branch)).join(', '), // Show display names in summary
-                                    style: const TextStyle(fontStyle: FontStyle.italic),
+                                    '${(mergeProgress * 100).toInt()}% ${mergeProgress < 1.0 ? 'completing' : 'completed'}',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontFamily: 'Orbitron',
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                    ),
                                   ),
                                 ],
                               ),
                             ),
-                            const SizedBox(height: 10),
+                            const SizedBox(height: 20),
+                          ] else if (isLoading) ...[
+                            const Center(child: CircularProgressIndicator()),
+                            const SizedBox(height: 20),
+                          ] else ...[
+                            _buildBranchSection('List of widgets', widgetBranches, const Color(0xFF7C4DFF)),
+                            _buildBranchSection('List of features', featureBranches, const Color(0xFF00E5FF)),
+                            const SizedBox(height: 18),
+                            // if (selectedSourceBranches.isNotEmpty) ...[
+                            //   FuturisticGlassPanel(
+                            //     child: Column(
+                            //       crossAxisAlignment: CrossAxisAlignment.start,
+                            //       children: [
+                            //         const Text(
+                            //           'Selected branches:',
+                            //           style: TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Orbitron', color: Color(0xFFB388FF)),
+                            //         ),
+                            //         const SizedBox(height: 4),
+                            //         Text(
+                            //           selectedSourceBranches.map((branch) => getDisplayName(branch)).join(', '),
+                            //           style: const TextStyle(fontStyle: FontStyle.italic, fontFamily: 'Orbitron', color: Colors.white70),
+                            //         ),
+                            //       ],
+                            //     ),
+                            //   ),
+                            //   const SizedBox(height: 12),
+                            // ],
+                            Row(
+                              children: [
+                                ElevatedButton.icon(
+                                  onPressed: (selectedSourceBranches.isEmpty || isLoading)
+                                      ? null
+                                      : mergeBranches,
+                                  icon: isLoading
+                                      ? const SizedBox(
+                                          width: 18,
+                                          height: 18,
+                                          child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFB388FF)),
+                                        )
+                                      : const Icon(Icons.merge_type, color: Colors.black),
+                                  label: const Text('Apply in project', style: TextStyle(color: Colors.black, fontFamily: 'Orbitron')),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFFB388FF),
+                                    foregroundColor: Colors.black,
+                                    elevation: 10,
+                                    shadowColor: const Color(0xFFB388FF),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                ElevatedButton.icon(
+                                  onPressed: () {
+                                    setState(() {
+                                      selectedSourceBranches.clear();
+                                    });
+                                  },
+                                  icon: const Icon(Icons.clear, color: Colors.black),
+                                  label: const Text('Clear Selection', style: TextStyle(color: Colors.black, fontFamily: 'Orbitron')),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF00E5FF),
+                                    foregroundColor: Colors.black,
+                                    elevation: 10,
+                                    shadowColor: const Color(0xFF00E5FF),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ],
-
-                          // Action buttons
-                          Row(
-                            children: [
-                              ElevatedButton.icon(
-                                onPressed: (selectedSourceBranches.isEmpty || isLoading)
-                                    ? null
-                                    : mergeBranches,
-                                icon: isLoading
-                                    ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF1DE9B6)),
-                                )
-                                    : const Icon(Icons.merge_type, color: Colors.black),
-                                label: const Text('Apply in project', style: TextStyle(color: Colors.black)),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF1DE9B6),
-                                  foregroundColor: Colors.black,
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              ElevatedButton.icon(
-                                onPressed: () {
-                                  setState(() {
-                                    selectedSourceBranches.clear();
-                                  });
-                                },
-                                icon: const Icon(Icons.clear, color: Colors.black),
-                                label: const Text('Clear Selection', style: TextStyle(color: Colors.black)),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF00BFAE),
-                                  foregroundColor: Colors.black,
-                                ),
-                              ),
-                            ],
-                          ),
                         ],
-                      ],
+                      ),
                     ),
-                  ),
-                ),
-                const SizedBox(height: 20),
-              ],
-
-              // Output Section
-              Container(
-                height: 300,
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(0.3),
-                  border: Border.all(color: Colors.white24),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: SingleChildScrollView(
-                  child: Padding(
-                    padding: const EdgeInsets.all(8.0),
-                    child: SelectableText(result, style: const TextStyle(color: Colors.white70, fontFamily: 'FiraMono', fontSize: 13)),
-                  ),
-                ),
+                    const SizedBox(height: 28),
+                  ],
+                  // Output Section
+                  // FuturisticGlassPanel(
+                  //   child: Container(
+                  //     height: 300,
+                  //     decoration: BoxDecoration(
+                  //       color: Colors.black.withOpacity(0.18),
+                  //       border: Border.all(color: Colors.white24),
+                  //       borderRadius: BorderRadius.circular(8),
+                  //       boxShadow: [
+                  //         BoxShadow(color: const Color(0xFFB388FF).withOpacity(0.10), blurRadius: 16, offset: const Offset(0, 4)),
+                  //       ],
+                  //     ),
+                  //     child: SingleChildScrollView(
+                  //       child: Padding(
+                  //         padding: const EdgeInsets.all(8.0),
+                  //         child: SelectableText(result, style: const TextStyle(color: Colors.white70, fontFamily: 'FiraMono', fontSize: 13)),
+                  //       ),
+                  //     ),
+                  //   ),
+                  // ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
-      ),
-    );
+      );
   }
 }
