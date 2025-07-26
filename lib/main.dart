@@ -347,6 +347,22 @@ class PatchPreferencesHelper {
   static String _desanitizeProjectPath(String sanitizedPath) {
     return sanitizedPath.replaceAll('_', '/');
   }
+
+  // Add this helper to get the fixed storage directory inside the main project
+  static Future<String> getFixedStorageDir() async {
+    final dir = await getApplicationDocumentsDirectory();
+    final fixedDir = Directory(p.join(dir.path, 'app_data', 'patches'));
+    if (!await fixedDir.exists()) {
+      await fixedDir.create(recursive: true);
+    }
+    return fixedDir.path;
+  }
+
+  // In PatchPreferencesHelper, update save/load methods to use a normalized key (e.g., repo name or hash) instead of full project path
+  static String _normalizeRepoIdentifier(String repoUrl) {
+    // Use repo name or a hash of the URL for uniqueness
+    return p.basenameWithoutExtension(Uri.parse(repoUrl).path);
+  }
 }
 
 // Database helper class for patch files (keeping for future use)
@@ -667,6 +683,8 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
   bool isLoading = false;
   bool isCreatingPatch = false;
   double mergeProgress = 0.0; // Progress for merge operation
+  // Add a state variable to control the visibility of the Create Patch File panel
+  bool showCreatePatchPanel = false;
 
   // Database helper instance
   final PatchDatabaseHelper _dbHelper = PatchDatabaseHelper();
@@ -844,21 +862,23 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
 
   // Enhanced method to load saved patch files with better persistence
   Future<void> loadSavedPatchFiles() async {
-    if (folderPath == null) return;
-
     setState(() {
       savedPatchFiles.clear();
       result += '\n--- Loading Saved Patch Files ---\n';
     });
 
     try {
-      // Load from SharedPreferences with enhanced validation
-      List<SavedPatchFile> prefsPatches = await PatchPreferencesHelper.loadPatchFiles(folderPath!);
-
-      // Verify files still exist and update metadata
+      // Use the fixed storage directory for patch files
+      final patchesBasePath = await PatchPreferencesHelper.getFixedStorageDir();
+      final patchesDir = Directory(patchesBasePath);
       List<SavedPatchFile> validPatches = [];
       bool prefsNeedUpdate = false;
 
+      // Load from SharedPreferences with enhanced validation using normalized repo identifier
+      final repoKey = PatchPreferencesHelper._normalizeRepoIdentifier(repoUrl);
+      List<SavedPatchFile> prefsPatches = await PatchPreferencesHelper.loadPatchFiles(repoKey);
+
+      // Verify files still exist and update metadata
       for (final patch in prefsPatches) {
         final file = File(patch.filePath);
         if (await file.exists()) {
@@ -885,8 +905,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
         }
       }
 
-      // Scan patches directory for any new files not in preferences
-      final patchesDir = Directory(p.join(folderPath!, 'patches'));
+      // Scan the fixed patches directory for any new files not in preferences
       if (await patchesDir.exists()) {
         final patchFiles = await patchesDir.list()
             .where((entity) => entity is File && entity.path.endsWith('.patch'))
@@ -920,7 +939,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
 
       // Update SharedPreferences if needed
       if (prefsNeedUpdate) {
-        await PatchPreferencesHelper.savePatchFiles(folderPath!, validPatches);
+        await PatchPreferencesHelper.savePatchFiles(repoKey, validPatches);
       }
 
       // Sort by creation date (newest first)
@@ -928,7 +947,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
 
       setState(() {
         savedPatchFiles = validPatches;
-        result += '✅ Loaded ${savedPatchFiles.length} saved patch files from persistent storage + file system.\n';
+        result += '✅ Loaded ${savedPatchFiles.length} saved patch files from persistent storage + fixed directory.\n';
       });
 
     } catch (e) {
@@ -1028,6 +1047,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
   }
 
   // Enhanced method to create patch file with better file management
+  // Enhanced method to create patch file from GitHub repository with better file management
   Future<void> createPatchFile() async {
     if (patchEntries.isEmpty) {
       setState(() {
@@ -1036,30 +1056,36 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
       return;
     }
 
-    if (folderPath == null) {
-      setState(() {
-        result += '\n⚠️ No project selected. Please create or select a project first.\n';
-      });
-      return;
-    }
-
     setState(() {
       isCreatingPatch = true;
-      result += '\n--- Creating Patch File ---\n';
+      result += '\n--- Creating Patch File from GitHub Repository ---\n';
+      result += 'Repository: $repoUrl\n';
     });
 
     try {
-      // Create patches directory if it doesn't exist
-      final patchesDir = Directory(p.join(folderPath!, 'patches'));
+      // Use the fixed storage directory for patch files
+      final patchesBasePath = await PatchPreferencesHelper.getFixedStorageDir();
+      final patchesDir = Directory(patchesBasePath);
       if (!await patchesDir.exists()) {
         await patchesDir.create(recursive: true);
       }
 
       final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final patchFileName = 'custom_patch_$timestamp.patch';
+      final patchFileName = 'github_patch_timestamp.patch';
       final patchFilePath = p.join(patchesDir.path, patchFileName);
 
+      setState(() {
+        result += 'Creating patch file: $patchFileName\n';
+      });
+
       StringBuffer patchContent = StringBuffer();
+
+      // Add header information about the source
+      patchContent.writeln('# Patch created from GitHub repository');
+      patchContent.writeln('# Repository: $repoUrl');
+      patchContent.writeln('# Created: ${DateTime.now().toIso8601String()}');
+      patchContent.writeln('# Entries: ${patchEntries.length}');
+      patchContent.writeln('');
 
       for (int i = 0; i < patchEntries.length; i++) {
         final entry = patchEntries[i];
@@ -1105,7 +1131,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
         }
       }
 
-      // Write patch file to disk
+      // Write patch file to disk in the fixed directory
       final patchFile = File(patchFilePath);
       await patchFile.writeAsString(patchContent.toString());
 
@@ -1117,21 +1143,26 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
         entriesCount: patchEntries.length,
       );
 
-      // Save to SharedPreferences (add to existing patches, don't replace)
-      final currentPatches = await PatchPreferencesHelper.loadPatchFiles(folderPath!);
+      // Save to SharedPreferences using a normalized key
+      final repoKey = PatchPreferencesHelper._normalizeRepoIdentifier(repoUrl);
+      final currentPatches = await PatchPreferencesHelper.loadPatchFiles(repoKey);
       currentPatches.add(savedPatch);
-      await PatchPreferencesHelper.savePatchFiles(folderPath!, currentPatches);
+      await PatchPreferencesHelper.savePatchFiles(repoKey, currentPatches);
+
+      // Also save the patch content directly to SharedPreferences as backup
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('patch_content_$timestamp', patchContent.toString());
+      await prefs.setString('patch_metadata_$timestamp', jsonEncode(savedPatch.toJson()));
 
       setState(() {
-        result += '✅ Patch file created successfully!\n';
-        result += 'Location: patches/${patchFileName}\n';
+        result += '✅ Patch file created successfully from GitHub repository!\n';
+        result += 'Location: app_data/patches/${patchFileName}\n';
         result += 'Entries included: ${patchEntries.length}\n';
-        result += 'To apply: git apply patches/${patchFileName}\n';
+        result += 'Saved to SharedPreferences for persistence\n';
+        result += 'Source: $repoUrl\n';
+        result += 'To apply: git apply app_data/patches/${patchFileName}\n';
         isCreatingPatch = false;
       });
-
-      // DON'T clear patch entries automatically - let user decide
-      // Keep the entries for potential reuse or modification
 
       // Reload saved patch files to include the new one
       await loadSavedPatchFiles();
@@ -1139,11 +1170,12 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
       // Show success message
       setState(() {
         result += '💡 Patch entries are preserved for reuse. Use "Clear All" if you want to start fresh.\n';
+        result += '🔄 Patch is safely stored in SharedPreferences and will persist across app restarts.\n';
       });
 
     } catch (e) {
       setState(() {
-        result += '❌ Error creating patch file: $e\n';
+        result += '❌ Error creating patch file from GitHub repository: $e\n';
         isCreatingPatch = false;
       });
     }
@@ -1887,266 +1919,52 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                   ),
                   const SizedBox(height: 28),
 
-                  // Enhanced Patch File Creator Section
-                  FuturisticGlassPanel(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            const Icon(Icons.build_circle, color: Color(0xFFFF6B35), size: 24),
-                            const SizedBox(width: 10),
-                            const Text(
-                              'Create Patch File',
-                              style: TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFFFF6B35),
-                                fontFamily: 'Orbitron',
-                                letterSpacing: 1.1,
-                              ),
-                            ),
-                            const Spacer(),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF4CAF50),
-                                borderRadius: BorderRadius.circular(6),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: const Color(0xFF4CAF50).withOpacity(0.3),
-                                    blurRadius: 4,
-                                  ),
-                                ],
-                              ),
-                              child: const Text(
-                                'AUTO-SAVE',
-                                style: TextStyle(
-                                  color: Colors.black,
-                                  fontWeight: FontWeight.bold,
-                                  fontFamily: 'Orbitron',
-                                  fontSize: 8,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-
-                        // Patch entry form
-                        Row(
-                          children: [
-                            Expanded(
-                              flex: 2,
-                              child: TextField(
-                                controller: _patchFolderController,
-                                style: const TextStyle(color: Colors.white, fontFamily: 'Orbitron'),
-                                decoration: const InputDecoration(
-                                  labelText: 'Folder Name',
-                                  labelStyle: TextStyle(color: Color(0xFFFF6B35)),
-                                  hintText: 'e.g., lib/widgets',
-                                  hintStyle: TextStyle(color: Colors.white38),
-                                  border: OutlineInputBorder(),
-                                  focusedBorder: OutlineInputBorder(
-                                    borderSide: BorderSide(color: Color(0xFFFF6B35), width: 2),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              flex: 2,
-                              child: TextField(
-                                controller: _patchFileNameController,
-                                style: const TextStyle(color: Colors.white, fontFamily: 'Orbitron'),
-                                decoration: const InputDecoration(
-                                  labelText: 'File Name',
-                                  labelStyle: TextStyle(color: Color(0xFFFF6B35)),
-                                  hintText: 'e.g., custom_widget.dart',
-                                  hintStyle: TextStyle(color: Colors.white38),
-                                  border: OutlineInputBorder(),
-                                  focusedBorder: OutlineInputBorder(
-                                    borderSide: BorderSide(color: Color(0xFFFF6B35), width: 2),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-
-                        TextField(
-                          controller: _patchFileContentController,
-                          style: const TextStyle(color: Colors.white, fontFamily: 'FiraMono', fontSize: 13),
-                          maxLines: 8,
-                          decoration: const InputDecoration(
-                            labelText: 'File Content',
-                            labelStyle: TextStyle(color: Color(0xFFFF6B35)),
-                            hintText: 'Enter your code here...',
-                            hintStyle: TextStyle(color: Colors.white38),
-                            border: OutlineInputBorder(),
-                            focusedBorder: OutlineInputBorder(
-                              borderSide: BorderSide(color: Color(0xFFFF6B35), width: 2),
-                            ),
-                            alignLabelWithHint: true,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-
-                        Row(
-                          children: [
-                            ElevatedButton.icon(
-                              onPressed: _addPatchEntry,
-                              icon: const Icon(Icons.add, color: Colors.black),
-                              label: const Text(
-                                'Add Entry',
-                                style: TextStyle(color: Colors.black, fontFamily: 'Orbitron'),
-                              ),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFFFF6B35),
-                                foregroundColor: Colors.black,
-                                elevation: 10,
-                                shadowColor: const Color(0xFFFF6B35),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            if (patchEntries.isNotEmpty) ...[
-                              ElevatedButton.icon(
-                                onPressed: isCreatingPatch ? null : createPatchFile,
-                                icon: isCreatingPatch
-                                    ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
-                                )
-                                    : const Icon(Icons.file_download, color: Colors.black),
-                                label: Text(
-                                  isCreatingPatch ? 'Creating...' : 'Create Patch',
-                                  style: const TextStyle(color: Colors.black, fontFamily: 'Orbitron'),
-                                ),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF4CAF50),
-                                  foregroundColor: Colors.black,
-                                  elevation: 10,
-                                  shadowColor: const Color(0xFF4CAF50),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              ElevatedButton.icon(
-                                onPressed: () async {
-                                  // Clear from SharedPreferences but keep for potential reuse
-                                  if (folderPath != null) {
-                                    await PatchPreferencesHelper.clearPatchEntries(folderPath!);
-                                  }
-                                  setState(() {
-                                    patchEntries.clear();
-                                    result += '✅ Cleared all patch entries from persistent storage.\n';
-                                  });
-                                },
-                                icon: const Icon(Icons.clear_all, color: Colors.black),
-                                label: const Text(
-                                  'Clear All',
-                                  style: TextStyle(color: Colors.black, fontFamily: 'Orbitron'),
-                                ),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFFF44336),
-                                  foregroundColor: Colors.black,
-                                  elevation: 10,
-                                  shadowColor: const Color(0xFFF44336),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              // Debug button to show all stored data
-                              ElevatedButton.icon(
-                                onPressed: () async {
-                                  await PatchPreferencesHelper.debugPrintAllData();
-                                  setState(() {
-                                    result += '🔍 Debug data printed to console. Check logs.\n';
-                                  });
-                                },
-                                icon: const Icon(Icons.bug_report, color: Colors.black, size: 16),
-                                label: const Text(
-                                  'Debug',
-                                  style: TextStyle(color: Colors.black, fontFamily: 'Orbitron', fontSize: 12),
-                                ),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFFFFEB3B),
-                                  foregroundColor: Colors.black,
-                                  elevation: 8,
-                                  shadowColor: const Color(0xFFFFEB3B),
-                                  minimumSize: const Size(80, 36),
-                                ),
-                              ),
-                            ],
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-
-                        // Display current patch entries
-                        Row(
-                          children: [
-                            const Icon(Icons.list_alt, color: Color(0xFFFF6B35), size: 20),
-                            const SizedBox(width: 8),
-                            Text(
-                              'Patch Entries (${patchEntries.length})',
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFFFF6B35),
-                                fontFamily: 'Orbitron',
-                              ),
-                            ),
-                            const Spacer(),
-                            if (folderPath != null)
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF4CAF50).withOpacity(0.2),
-                                  border: Border.all(color: const Color(0xFF4CAF50), width: 1),
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: const Text(
-                                  'Auto-saved & Persistent',
-                                  style: TextStyle(
-                                    color: Color(0xFF4CAF50),
-                                    fontFamily: 'Orbitron',
-                                    fontSize: 8,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        _buildPatchEntriesList(),
-                      ],
+                  // Add the Create Custom Feature button
+                  Center(
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        setState(() {
+                          showCreatePatchPanel = !showCreatePatchPanel;
+                        });
+                      },
+                      icon: const Icon(Icons.add_circle_outline, color: Colors.black),
+                      label: Text(
+                        showCreatePatchPanel ? 'Hide Custom Feature Creator' : 'Create Custom Feature',
+                        style: const TextStyle(color: Colors.black, fontFamily: 'Orbitron'),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFFF6B35),
+                        foregroundColor: Colors.black,
+                        elevation: 10,
+                        shadowColor: const Color(0xFFFF6B35),
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 28),
+                  const SizedBox(height: 18),
 
-                  // Enhanced Saved Patch Files Section
-                  if (folderPath != null) ...[
+                  // Show the Create Patch File panel only if showCreatePatchPanel is true
+                  if (showCreatePatchPanel)
                     FuturisticGlassPanel(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(
                             children: [
-                              const Icon(Icons.folder_special, color: Color(0xFF4CAF50), size: 24),
+                              const Icon(Icons.build_circle, color: Color(0xFFFF6B35), size: 24),
                               const SizedBox(width: 10),
                               const Text(
-                                'Saved Patch Files',
+                                'Create Patch File',
                                 style: TextStyle(
                                   fontSize: 20,
                                   fontWeight: FontWeight.bold,
-                                  color: Color(0xFF4CAF50),
+                                  color: Color(0xFFFF6B35),
                                   fontFamily: 'Orbitron',
                                   letterSpacing: 1.1,
                                 ),
                               ),
                               const Spacer(),
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                                 decoration: BoxDecoration(
                                   color: const Color(0xFF4CAF50),
                                   borderRadius: BorderRadius.circular(6),
@@ -2158,7 +1976,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                                   ],
                                 ),
                                 child: const Text(
-                                  'PERSISTENT',
+                                  'AUTO-SAVE',
                                   style: TextStyle(
                                     color: Colors.black,
                                     fontWeight: FontWeight.bold,
@@ -2167,70 +1985,200 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                                   ),
                                 ),
                               ),
-                              const SizedBox(width: 8),
-                              IconButton(
-                                onPressed: loadSavedPatchFiles,
-                                icon: const Icon(Icons.refresh, color: Color(0xFF4CAF50)),
-                                tooltip: 'Refresh Patch Files',
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          // ... existing patch entry form and logic ...
+                          // Patch entry form
+                          Row(
+                            children: [
+                              Expanded(
+                                flex: 2,
+                                child: TextField(
+                                  controller: _patchFolderController,
+                                  style: const TextStyle(color: Colors.white, fontFamily: 'Orbitron'),
+                                  decoration: const InputDecoration(
+                                    labelText: 'Folder Name',
+                                    labelStyle: TextStyle(color: Color(0xFFFF6B35)),
+                                    hintText: 'e.g., lib/widgets',
+                                    hintStyle: TextStyle(color: Colors.white38),
+                                    border: OutlineInputBorder(),
+                                    focusedBorder: OutlineInputBorder(
+                                      borderSide: BorderSide(color: Color(0xFFFF6B35), width: 2),
+                                    ),
+                                  ),
+                                ),
                               ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                flex: 2,
+                                child: TextField(
+                                  controller: _patchFileNameController,
+                                  style: const TextStyle(color: Colors.white, fontFamily: 'Orbitron'),
+                                  decoration: const InputDecoration(
+                                    labelText: 'File Name',
+                                    labelStyle: TextStyle(color: Color(0xFFFF6B35)),
+                                    hintText: 'e.g., custom_widget.dart',
+                                    hintStyle: TextStyle(color: Colors.white38),
+                                    border: OutlineInputBorder(),
+                                    focusedBorder: OutlineInputBorder(
+                                      borderSide: BorderSide(color: Color(0xFFFF6B35), width: 2),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+
+                          TextField(
+                            controller: _patchFileContentController,
+                            style: const TextStyle(color: Colors.white, fontFamily: 'FiraMono', fontSize: 13),
+                            maxLines: 8,
+                            decoration: const InputDecoration(
+                              labelText: 'File Content',
+                              labelStyle: TextStyle(color: Color(0xFFFF6B35)),
+                              hintText: 'Enter your code here...',
+                              hintStyle: TextStyle(color: Colors.white38),
+                              border: OutlineInputBorder(),
+                              focusedBorder: OutlineInputBorder(
+                                borderSide: BorderSide(color: Color(0xFFFF6B35), width: 2),
+                              ),
+                              alignLabelWithHint: true,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+
+                          Row(
+                            children: [
+                              ElevatedButton.icon(
+                                onPressed: _addPatchEntry,
+                                icon: const Icon(Icons.add, color: Colors.black),
+                                label: const Text(
+                                  'Add Entry',
+                                  style: TextStyle(color: Colors.black, fontFamily: 'Orbitron'),
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFFFF6B35),
+                                  foregroundColor: Colors.black,
+                                  elevation: 10,
+                                  shadowColor: const Color(0xFFFF6B35),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              if (patchEntries.isNotEmpty) ...[
+                                ElevatedButton.icon(
+                                  onPressed: isCreatingPatch ? null : createPatchFile,
+                                  icon: isCreatingPatch
+                                      ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                                  )
+                                      : const Icon(Icons.file_download, color: Colors.black),
+                                  label: Text(
+                                    isCreatingPatch ? 'Creating...' : 'Create Patch',
+                                    style: const TextStyle(color: Colors.black, fontFamily: 'Orbitron'),
+                                  ),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF4CAF50),
+                                    foregroundColor: Colors.black,
+                                    elevation: 10,
+                                    shadowColor: const Color(0xFF4CAF50),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                ElevatedButton.icon(
+                                  onPressed: () async {
+                                    // Clear from SharedPreferences but keep for potential reuse
+                                    if (folderPath != null) {
+                                      await PatchPreferencesHelper.clearPatchEntries(folderPath!);
+                                    }
+                                    setState(() {
+                                      patchEntries.clear();
+                                      result += '✅ Cleared all patch entries from persistent storage.\n';
+                                    });
+                                  },
+                                  icon: const Icon(Icons.clear_all, color: Colors.black),
+                                  label: const Text(
+                                    'Clear All',
+                                    style: TextStyle(color: Colors.black, fontFamily: 'Orbitron'),
+                                  ),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFFF44336),
+                                    foregroundColor: Colors.black,
+                                    elevation: 10,
+                                    shadowColor: const Color(0xFFF44336),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                // Debug button to show all stored data
+                                ElevatedButton.icon(
+                                  onPressed: () async {
+                                    await PatchPreferencesHelper.debugPrintAllData();
+                                    setState(() {
+                                      result += '🔍 Debug data printed to console. Check logs.\n';
+                                    });
+                                  },
+                                  icon: const Icon(Icons.bug_report, color: Colors.black, size: 16),
+                                  label: const Text(
+                                    'Debug',
+                                    style: TextStyle(color: Colors.black, fontFamily: 'Orbitron', fontSize: 12),
+                                  ),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFFFFEB3B),
+                                    foregroundColor: Colors.black,
+                                    elevation: 8,
+                                    shadowColor: const Color(0xFFFFEB3B),
+                                    minimumSize: const Size(80, 36),
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                           const SizedBox(height: 16),
 
-                          Text(
-                            'Saved patch files (${savedPatchFiles.length})',
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF4CAF50),
-                              fontFamily: 'Orbitron',
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          _buildSavedPatchFilesList(),
-
-                          if (savedPatchFiles.isNotEmpty) ...[
-                            const SizedBox(height: 12),
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF00E5FF).withOpacity(0.1),
-                                border: Border.all(color: const Color(0xFF00E5FF).withOpacity(0.3)),
-                                borderRadius: BorderRadius.circular(8),
+                          // Display current patch entries
+                          Row(
+                            children: [
+                              const Icon(Icons.list_alt, color: Color(0xFFFF6B35), size: 20),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Patch Entries (${patchEntries.length})',
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFFFF6B35),
+                                  fontFamily: 'Orbitron',
+                                ),
                               ),
-                              child: Row(
-                                children: [
-                                  const Icon(Icons.info_outline, color: Color(0xFF00E5FF), size: 16),
-                                  const SizedBox(width: 8),
-                                  const Expanded(
-                                    child: Text(
-                                      'Patch files are stored persistently and will survive app restarts. Data is saved in both SharedPreferences and file system.',
-                                      style: TextStyle(
-                                        color: Color(0xFF00E5FF),
-                                        fontSize: 11,
-                                        fontFamily: 'Orbitron',
-                                      ),
+                              const Spacer(),
+                              if (folderPath != null)
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF4CAF50).withOpacity(0.2),
+                                    border: Border.all(color: const Color(0xFF4CAF50), width: 1),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: const Text(
+                                    'Auto-saved & Persistent',
+                                    style: TextStyle(
+                                      color: Color(0xFF4CAF50),
+                                      fontFamily: 'Orbitron',
+                                      fontSize: 8,
+                                      fontWeight: FontWeight.bold,
                                     ),
                                   ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            const Text(
-                              '💡 Click the play button to apply a patch file to your project. Patch entries are preserved for reuse even after creating patches.',
-                              style: TextStyle(
-                                color: Colors.white54,
-                                fontSize: 12,
-                                fontStyle: FontStyle.italic,
-                                fontFamily: 'Orbitron',
-                              ),
-                            ),
-                          ],
+                                ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          _buildPatchEntriesList(),
                         ],
                       ),
                     ),
                     const SizedBox(height: 28),
-                  ],
 
                   if (folderPath != null && !isCloning) ...[
                     // Merge Section
