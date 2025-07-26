@@ -1,11 +1,15 @@
 import 'dart:io';
 import 'dart:ui';
+import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:process_run/process_run.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:sqflite/sqflite.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class FuturisticGlassPanel extends StatelessWidget {
   final Widget child;
@@ -56,6 +60,463 @@ class FuturisticGlassPanel extends StatelessWidget {
   }
 }
 
+// Enhanced SharedPreferences helper for patch files with better persistence
+class PatchPreferencesHelper {
+  static const String _savedPatchesKey = 'saved_patches_v2_';
+  static const String _patchEntriesKey = 'patch_entries_v2_';
+  static const String _lastProjectKey = 'last_project_path';
+
+  // Save the last used project path
+  static Future<void> saveLastProjectPath(String projectPath) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_lastProjectKey, projectPath);
+  }
+
+  // Load the last used project path
+  static Future<String?> getLastProjectPath() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(_lastProjectKey);
+  }
+
+  // Save patch files metadata to SharedPreferences with validation
+  static Future<void> savePatchFiles(String projectPath, List<SavedPatchFile> patchFiles) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = _savedPatchesKey + _sanitizeProjectPath(projectPath);
+
+      final List<Map<String, dynamic>> patchData = patchFiles.map((patch) => {
+        'fileName': patch.fileName,
+        'filePath': patch.filePath,
+        'createdAt': patch.createdAt.millisecondsSinceEpoch,
+        'entriesCount': patch.entriesCount,
+      }).toList();
+
+      final jsonData = jsonEncode(patchData);
+      await prefs.setString(key, jsonData);
+
+      // Also save a backup timestamp
+      await prefs.setInt('${key}_timestamp', DateTime.now().millisecondsSinceEpoch);
+
+      print('✅ Successfully saved ${patchFiles.length} patch files to SharedPreferences');
+    } catch (e) {
+      print('❌ Error saving patch files: $e');
+      rethrow;
+    }
+  }
+
+  // Load patch files metadata from SharedPreferences with validation
+  static Future<List<SavedPatchFile>> loadPatchFiles(String projectPath) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = _savedPatchesKey + _sanitizeProjectPath(projectPath);
+
+      final String? patchDataJson = prefs.getString(key);
+      if (patchDataJson == null || patchDataJson.isEmpty) {
+        print('ℹ️ No patch files found in SharedPreferences for project: $projectPath');
+        return [];
+      }
+
+      final List<dynamic> patchData = jsonDecode(patchDataJson);
+      final patchFiles = patchData.map((data) {
+        // Validate required fields
+        if (data['fileName'] == null || data['filePath'] == null || data['createdAt'] == null) {
+          print('⚠️ Invalid patch file data found, skipping: $data');
+          return null;
+        }
+
+        return SavedPatchFile(
+          fileName: data['fileName'].toString(),
+          filePath: data['filePath'].toString(),
+          createdAt: DateTime.fromMillisecondsSinceEpoch(data['createdAt'] as int),
+          entriesCount: data['entriesCount'] as int? ?? 0,
+        );
+      }).where((patch) => patch != null).cast<SavedPatchFile>().toList();
+
+      print('✅ Successfully loaded ${patchFiles.length} patch files from SharedPreferences');
+      return patchFiles;
+    } catch (e) {
+      print('❌ Error loading patch files from SharedPreferences: $e');
+      return [];
+    }
+  }
+
+  // Save patch entries to SharedPreferences with validation
+  static Future<void> savePatchEntries(String projectPath, List<PatchFileEntry> entries) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = _patchEntriesKey + _sanitizeProjectPath(projectPath);
+
+      final List<Map<String, dynamic>> entriesData = entries.map((entry) => {
+        'folderName': entry.folderName,
+        'fileName': entry.fileName,
+        'fileContent': entry.fileContent,
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
+      }).toList();
+
+      final jsonData = jsonEncode(entriesData);
+      await prefs.setString(key, jsonData);
+
+      // Also save a backup timestamp
+      await prefs.setInt('${key}_timestamp', DateTime.now().millisecondsSinceEpoch);
+
+      print('✅ Successfully saved ${entries.length} patch entries to SharedPreferences');
+    } catch (e) {
+      print('❌ Error saving patch entries: $e');
+      rethrow;
+    }
+  }
+
+  // Load patch entries from SharedPreferences with validation
+  static Future<List<PatchFileEntry>> loadPatchEntries(String projectPath) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = _patchEntriesKey + _sanitizeProjectPath(projectPath);
+
+      final String? entriesDataJson = prefs.getString(key);
+      if (entriesDataJson == null || entriesDataJson.isEmpty) {
+        print('ℹ️ No patch entries found in SharedPreferences for project: $projectPath');
+        return [];
+      }
+
+      final List<dynamic> entriesData = jsonDecode(entriesDataJson);
+      final entries = entriesData.map((data) {
+        // Validate required fields
+        if (data['folderName'] == null || data['fileName'] == null || data['fileContent'] == null) {
+          print('⚠️ Invalid patch entry data found, skipping: $data');
+          return null;
+        }
+
+        return PatchFileEntry(
+          folderName: data['folderName'].toString(),
+          fileName: data['fileName'].toString(),
+          fileContent: data['fileContent'].toString(),
+        );
+      }).where((entry) => entry != null).cast<PatchFileEntry>().toList();
+
+      print('✅ Successfully loaded ${entries.length} patch entries from SharedPreferences');
+      return entries;
+    } catch (e) {
+      print('❌ Error loading patch entries from SharedPreferences: $e');
+      return [];
+    }
+  }
+
+  // Remove patch file from SharedPreferences
+  static Future<void> removePatchFile(String projectPath, String fileName) async {
+    try {
+      final patchFiles = await loadPatchFiles(projectPath);
+      final updatedPatchFiles = patchFiles.where((patch) => patch.fileName != fileName).toList();
+      await savePatchFiles(projectPath, updatedPatchFiles);
+      print('✅ Successfully removed patch file: $fileName');
+    } catch (e) {
+      print('❌ Error removing patch file: $e');
+      rethrow;
+    }
+  }
+
+  // Clear patch entries for a project (but keep them until patch is created)
+  static Future<void> clearPatchEntries(String projectPath) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = _patchEntriesKey + _sanitizeProjectPath(projectPath);
+      await prefs.remove(key);
+      await prefs.remove('${key}_timestamp');
+      print('✅ Successfully cleared patch entries for project: $projectPath');
+    } catch (e) {
+      print('❌ Error clearing patch entries: $e');
+    }
+  }
+
+  // Get all project paths that have saved data
+  static Future<List<String>> getAllProjectPaths() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final keys = prefs.getKeys();
+
+      final Set<String> projectPaths = {};
+      for (final key in keys) {
+        if (key.startsWith(_savedPatchesKey)) {
+          final projectPath = key.substring(_savedPatchesKey.length);
+          projectPaths.add(_desanitizeProjectPath(projectPath));
+        } else if (key.startsWith(_patchEntriesKey)) {
+          final projectPath = key.substring(_patchEntriesKey.length);
+          projectPaths.add(_desanitizeProjectPath(projectPath));
+        }
+      }
+
+      return projectPaths.toList();
+    } catch (e) {
+      print('❌ Error getting all project paths: $e');
+      return [];
+    }
+  }
+
+  // Clean up preferences for non-existent projects
+  static Future<void> cleanupPreferences() async {
+    try {
+      final projectPaths = await getAllProjectPaths();
+      final prefs = await SharedPreferences.getInstance();
+      int cleanedCount = 0;
+
+      for (final projectPath in projectPaths) {
+        if (!await Directory(projectPath).exists()) {
+          final sanitizedPath = _sanitizeProjectPath(projectPath);
+          await prefs.remove(_savedPatchesKey + sanitizedPath);
+          await prefs.remove(_patchEntriesKey + sanitizedPath);
+          await prefs.remove('${_savedPatchesKey}${sanitizedPath}_timestamp');
+          await prefs.remove('${_patchEntriesKey}${sanitizedPath}_timestamp');
+          cleanedCount++;
+        }
+      }
+
+      if (cleanedCount > 0) {
+        print('✅ Cleaned up preferences for $cleanedCount non-existent projects');
+      }
+    } catch (e) {
+      print('❌ Error during cleanup: $e');
+    }
+  }
+
+  // Backup all data to a JSON file
+  static Future<String?> backupAllData() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final keys = prefs.getKeys();
+
+      final Map<String, dynamic> backup = {};
+      for (final key in keys) {
+        if (key.startsWith(_savedPatchesKey) || key.startsWith(_patchEntriesKey) || key == _lastProjectKey) {
+          final value = prefs.get(key);
+          backup[key] = value;
+        }
+      }
+
+      final documentsDirectory = await getApplicationDocumentsDirectory();
+      final backupFile = File(p.join(documentsDirectory.path, 'patch_backup_${DateTime.now().millisecondsSinceEpoch}.json'));
+
+      await backupFile.writeAsString(jsonEncode(backup));
+      print('✅ Backup created at: ${backupFile.path}');
+      return backupFile.path;
+    } catch (e) {
+      print('❌ Error creating backup: $e');
+      return null;
+    }
+  }
+
+  // Debug: Print all stored data
+  static Future<void> debugPrintAllData() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final keys = prefs.getKeys().where((key) =>
+      key.startsWith(_savedPatchesKey) ||
+          key.startsWith(_patchEntriesKey) ||
+          key == _lastProjectKey
+      ).toList();
+
+      print('\n🔍 DEBUG: All stored patch data:');
+      print('─' * 50);
+
+      for (final key in keys) {
+        final value = prefs.get(key);
+        print('Key: $key');
+        print('Type: ${value.runtimeType}');
+        if (value is String && value.length > 100) {
+          print('Value: ${value.substring(0, 100)}...');
+        } else {
+          print('Value: $value');
+        }
+        print('─' * 30);
+      }
+
+      if (keys.isEmpty) {
+        print('No patch data found in SharedPreferences');
+      }
+
+      print('🔍 DEBUG: End of data\n');
+    } catch (e) {
+      print('❌ Error during debug print: $e');
+    }
+  }
+
+  // Sanitize project path for use as SharedPreferences key
+  static String _sanitizeProjectPath(String path) {
+    return path.replaceAll(RegExp(r'[/\\:*?"<>|]'), '_');
+  }
+
+  // Reverse sanitization to get original project path
+  static String _desanitizeProjectPath(String sanitizedPath) {
+    return sanitizedPath.replaceAll('_', '/');
+  }
+}
+
+// Database helper class for patch files (keeping for future use)
+class PatchDatabaseHelper {
+  static final PatchDatabaseHelper _instance = PatchDatabaseHelper._internal();
+  factory PatchDatabaseHelper() => _instance;
+  PatchDatabaseHelper._internal();
+
+  static Database? _database;
+
+  Future<Database> get database async {
+    if (_database != null) return _database!;
+    _database = await _initDatabase();
+    return _database!;
+  }
+
+  Future<Database> _initDatabase() async {
+    final documentsDirectory = await getApplicationDocumentsDirectory();
+    final path = p.join(documentsDirectory.path, 'patch_files.db');
+
+    return await openDatabase(
+      path,
+      version: 1,
+      onCreate: _onCreate,
+    );
+  }
+
+  Future<void> _onCreate(Database db, int version) async {
+    await db.execute('''
+      CREATE TABLE patch_entries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_path TEXT NOT NULL,
+        folder_name TEXT NOT NULL,
+        file_name TEXT NOT NULL,
+        file_content TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE saved_patches (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_path TEXT NOT NULL,
+        patch_name TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        entries_count INTEGER NOT NULL,
+        created_at INTEGER NOT NULL
+      )
+    ''');
+  }
+
+  // Patch entries methods
+  Future<int> insertPatchEntry(String projectPath, PatchFileEntry entry) async {
+    final db = await database;
+    return await db.insert('patch_entries', {
+      'project_path': projectPath,
+      'folder_name': entry.folderName,
+      'file_name': entry.fileName,
+      'file_content': entry.fileContent,
+      'created_at': DateTime.now().millisecondsSinceEpoch,
+    });
+  }
+
+  Future<List<PatchFileEntry>> getPatchEntries(String projectPath) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      'patch_entries',
+      where: 'project_path = ?',
+      whereArgs: [projectPath],
+      orderBy: 'created_at ASC',
+    );
+
+    return List.generate(maps.length, (i) {
+      return PatchFileEntry(
+        folderName: maps[i]['folder_name'],
+        fileName: maps[i]['file_name'],
+        fileContent: maps[i]['file_content'],
+      );
+    });
+  }
+
+  Future<void> deletePatchEntry(String projectPath, int index) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      'patch_entries',
+      where: 'project_path = ?',
+      whereArgs: [projectPath],
+      orderBy: 'created_at ASC',
+    );
+
+    if (index < maps.length) {
+      await db.delete(
+        'patch_entries',
+        where: 'id = ?',
+        whereArgs: [maps[index]['id']],
+      );
+    }
+  }
+
+  Future<void> clearPatchEntries(String projectPath) async {
+    final db = await database;
+    await db.delete(
+      'patch_entries',
+      where: 'project_path = ?',
+      whereArgs: [projectPath],
+    );
+  }
+
+  // Saved patches methods
+  Future<int> insertSavedPatch(String projectPath, SavedPatchFile patch) async {
+    final db = await database;
+    return await db.insert('saved_patches', {
+      'project_path': projectPath,
+      'patch_name': patch.fileName,
+      'file_path': patch.filePath,
+      'entries_count': patch.entriesCount,
+      'created_at': patch.createdAt.millisecondsSinceEpoch,
+    });
+  }
+
+  Future<List<SavedPatchFile>> getSavedPatches(String projectPath) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      'saved_patches',
+      where: 'project_path = ?',
+      whereArgs: [projectPath],
+      orderBy: 'created_at DESC',
+    );
+
+    return List.generate(maps.length, (i) {
+      return SavedPatchFile(
+        fileName: maps[i]['patch_name'],
+        filePath: maps[i]['file_path'],
+        createdAt: DateTime.fromMillisecondsSinceEpoch(maps[i]['created_at']),
+        entriesCount: maps[i]['entries_count'],
+      );
+    });
+  }
+
+  Future<void> deleteSavedPatch(String projectPath, String fileName) async {
+    final db = await database;
+    await db.delete(
+      'saved_patches',
+      where: 'project_path = ? AND patch_name = ?',
+      whereArgs: [projectPath, fileName],
+    );
+  }
+
+  // Clean up old entries for non-existent projects
+  Future<void> cleanupOldEntries() async {
+    final db = await database;
+
+    // Get all unique project paths
+    final projectPaths = await db.rawQuery('''
+      SELECT DISTINCT project_path FROM patch_entries
+      UNION
+      SELECT DISTINCT project_path FROM saved_patches
+    ''');
+
+    for (final pathMap in projectPaths) {
+      final projectPath = pathMap['project_path'] as String;
+      if (!await Directory(projectPath).exists()) {
+        // Remove entries for non-existent projects
+        await db.delete('patch_entries', where: 'project_path = ?', whereArgs: [projectPath]);
+        await db.delete('saved_patches', where: 'project_path = ?', whereArgs: [projectPath]);
+      }
+    }
+  }
+}
+
 // New class for patch file entry
 class PatchFileEntry {
   String folderName;
@@ -67,6 +528,22 @@ class PatchFileEntry {
     required this.fileName,
     required this.fileContent,
   });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'folderName': folderName,
+      'fileName': fileName,
+      'fileContent': fileContent,
+    };
+  }
+
+  factory PatchFileEntry.fromJson(Map<String, dynamic> json) {
+    return PatchFileEntry(
+      folderName: json['folderName'] ?? '',
+      fileName: json['fileName'] ?? '',
+      fileContent: json['fileContent'] ?? '',
+    );
+  }
 }
 
 // New class for saved patch files
@@ -82,6 +559,24 @@ class SavedPatchFile {
     required this.createdAt,
     required this.entriesCount,
   });
+
+  Map<String, dynamic> toJson() {
+    return {
+      'fileName': fileName,
+      'filePath': filePath,
+      'createdAt': createdAt.millisecondsSinceEpoch,
+      'entriesCount': entriesCount,
+    };
+  }
+
+  factory SavedPatchFile.fromJson(Map<String, dynamic> json) {
+    return SavedPatchFile(
+      fileName: json['fileName'] ?? '',
+      filePath: json['filePath'] ?? '',
+      createdAt: DateTime.fromMillisecondsSinceEpoch(json['createdAt'] ?? 0),
+      entriesCount: json['entriesCount'] ?? 0,
+    );
+  }
 }
 
 void main() {
@@ -173,6 +668,9 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
   bool isCreatingPatch = false;
   double mergeProgress = 0.0; // Progress for merge operation
 
+  // Database helper instance
+  final PatchDatabaseHelper _dbHelper = PatchDatabaseHelper();
+
   // Hardcoded repository URL
   static const String repoUrl = "https://github.com/SahilJadhav12/mergingdemo.git";
 
@@ -184,10 +682,10 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
   final TextEditingController _patchFileNameController = TextEditingController();
   final TextEditingController _patchFileContentController = TextEditingController();
 
-  // List to store multiple patch file entries
+  // List to store multiple patch file entries (now loaded from SharedPreferences)
   List<PatchFileEntry> patchEntries = [];
 
-  // List to store saved patch files
+  // List to store saved patch files (now loaded from SharedPreferences)
   List<SavedPatchFile> savedPatchFiles = [];
 
   List<String> localBranches = [];
@@ -203,12 +701,106 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
   String destinationBranch = "main"; // Always set to "main"
 
   @override
+  void initState() {
+    super.initState();
+    _initializeApp();
+  }
+
+  Future<void> _initializeApp() async {
+    setState(() {
+      result += 'Initializing app...\n';
+    });
+
+    try {
+      // Initialize database
+      await _dbHelper.database;
+
+      // Clean up old entries
+      await _dbHelper.cleanupOldEntries();
+      await PatchPreferencesHelper.cleanupPreferences();
+
+      // Try to restore last project
+      final lastProject = await PatchPreferencesHelper.getLastProjectPath();
+      if (lastProject != null && await Directory(lastProject).exists()) {
+        setState(() {
+          folderPath = lastProject;
+          result += 'Restored last project: $lastProject\n';
+        });
+
+        // Load data for the restored project
+        await _loadProjectData();
+      }
+
+      setState(() {
+        result += 'App initialized successfully!\n';
+      });
+
+      // Debug: Print all stored data
+      await PatchPreferencesHelper.debugPrintAllData();
+
+    } catch (e) {
+      setState(() {
+        result += 'Error during initialization: $e\n';
+      });
+    }
+  }
+
+  Future<void> _loadProjectData() async {
+    if (folderPath == null) return;
+
+    try {
+      await loadBranches();
+      await loadSavedPatchFiles();
+      await _loadPatchEntriesFromPreferences();
+    } catch (e) {
+      setState(() {
+        result += 'Error loading project data: $e\n';
+      });
+    }
+  }
+
+  @override
   void dispose() {
     _folderNameController.dispose();
     _patchFolderController.dispose();
     _patchFileNameController.dispose();
     _patchFileContentController.dispose();
     super.dispose();
+  }
+
+  // Load patch entries from SharedPreferences when project is selected
+  Future<void> _loadPatchEntriesFromPreferences() async {
+    if (folderPath == null) return;
+
+    try {
+      final entries = await PatchPreferencesHelper.loadPatchEntries(folderPath!);
+      setState(() {
+        patchEntries = entries;
+      });
+
+      if (entries.isNotEmpty) {
+        setState(() {
+          result += '✅ Loaded ${entries.length} patch entries from persistent storage.\n';
+        });
+      }
+    } catch (e) {
+      setState(() {
+        result += '❌ Error loading patch entries from persistent storage: $e\n';
+      });
+    }
+  }
+
+  // Save patch entry to SharedPreferences
+  Future<void> _savePatchEntryToPreferences() async {
+    if (folderPath == null) return;
+
+    try {
+      await PatchPreferencesHelper.savePatchEntries(folderPath!, patchEntries);
+    } catch (e) {
+      setState(() {
+        result += '❌ Error saving patch entries to persistent storage: $e\n';
+      });
+    }
   }
 
   // Helper function to get display name (without prefixes)
@@ -250,55 +842,103 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
     return null;
   }
 
-  // New method to load saved patch files
+  // Enhanced method to load saved patch files with better persistence
   Future<void> loadSavedPatchFiles() async {
     if (folderPath == null) return;
 
     setState(() {
       savedPatchFiles.clear();
+      result += '\n--- Loading Saved Patch Files ---\n';
     });
 
     try {
-      final patchesDir = Directory(p.join(folderPath!, 'patches'));
-      if (!await patchesDir.exists()) {
-        return; // No patches directory, no saved patches
+      // Load from SharedPreferences with enhanced validation
+      List<SavedPatchFile> prefsPatches = await PatchPreferencesHelper.loadPatchFiles(folderPath!);
+
+      // Verify files still exist and update metadata
+      List<SavedPatchFile> validPatches = [];
+      bool prefsNeedUpdate = false;
+
+      for (final patch in prefsPatches) {
+        final file = File(patch.filePath);
+        if (await file.exists()) {
+          // File exists, verify metadata is still accurate
+          final stat = await file.stat();
+          final content = await file.readAsString();
+          final entriesCount = 'diff --git'.allMatches(content).length;
+
+          // Update if metadata has changed
+          if (patch.entriesCount != entriesCount || patch.createdAt != stat.modified) {
+            validPatches.add(SavedPatchFile(
+              fileName: patch.fileName,
+              filePath: patch.filePath,
+              createdAt: stat.modified,
+              entriesCount: entriesCount,
+            ));
+            prefsNeedUpdate = true;
+          } else {
+            validPatches.add(patch);
+          }
+        } else {
+          // File no longer exists, remove from preferences later
+          prefsNeedUpdate = true;
+        }
       }
 
-      final patchFiles = await patchesDir.list()
-          .where((entity) => entity is File && entity.path.endsWith('.patch'))
-          .cast<File>()
-          .toList();
+      // Scan patches directory for any new files not in preferences
+      final patchesDir = Directory(p.join(folderPath!, 'patches'));
+      if (await patchesDir.exists()) {
+        final patchFiles = await patchesDir.list()
+            .where((entity) => entity is File && entity.path.endsWith('.patch'))
+            .cast<File>()
+            .toList();
 
-      for (final patchFile in patchFiles) {
-        final stat = await patchFile.stat();
-        final content = await patchFile.readAsString();
+        for (final patchFile in patchFiles) {
+          final fileName = p.basename(patchFile.path);
 
-        // Count entries by counting "diff --git" occurrences
-        final entriesCount = 'diff --git'.allMatches(content).length;
+          // Check if this file is already in our preferences
+          final existsInPrefs = validPatches.any((patch) => patch.fileName == fileName);
 
-        savedPatchFiles.add(SavedPatchFile(
-          fileName: p.basename(patchFile.path),
-          filePath: patchFile.path,
-          createdAt: stat.modified,
-          entriesCount: entriesCount,
-        ));
+          if (!existsInPrefs) {
+            // Add new file to preferences
+            final stat = await patchFile.stat();
+            final content = await patchFile.readAsString();
+            final entriesCount = 'diff --git'.allMatches(content).length;
+
+            final newPatch = SavedPatchFile(
+              fileName: fileName,
+              filePath: patchFile.path,
+              createdAt: stat.modified,
+              entriesCount: entriesCount,
+            );
+
+            validPatches.add(newPatch);
+            prefsNeedUpdate = true;
+          }
+        }
+      }
+
+      // Update SharedPreferences if needed
+      if (prefsNeedUpdate) {
+        await PatchPreferencesHelper.savePatchFiles(folderPath!, validPatches);
       }
 
       // Sort by creation date (newest first)
-      savedPatchFiles.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      validPatches.sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
       setState(() {
-        result += 'Loaded ${savedPatchFiles.length} saved patch files.\n';
+        savedPatchFiles = validPatches;
+        result += '✅ Loaded ${savedPatchFiles.length} saved patch files from persistent storage + file system.\n';
       });
 
     } catch (e) {
       setState(() {
-        result += 'Error loading saved patch files: $e\n';
+        result += '❌ Error loading saved patch files: $e\n';
       });
     }
   }
 
-  // New method to apply a saved patch file
+  // Modified method to apply a saved patch file
   Future<void> applySavedPatch(SavedPatchFile patchFile) async {
     if (folderPath == null) return;
 
@@ -313,9 +953,9 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
 
       setState(() {
         if (applyResult.contains('Error:')) {
-          result += 'Failed to apply patch: $applyResult\n';
+          result += '❌ Failed to apply patch: $applyResult\n';
         } else {
-          result += 'Patch applied successfully!\n';
+          result += '✅ Patch applied successfully!\n';
           result += 'Applied ${patchFile.entriesCount} file(s) to the project.\n';
         }
         isLoading = false;
@@ -323,69 +963,82 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
 
     } catch (e) {
       setState(() {
-        result += 'Error applying patch: $e\n';
+        result += '❌ Error applying patch: $e\n';
         isLoading = false;
       });
     }
   }
 
-  // New method to delete a saved patch file
+  // Enhanced method to delete a saved patch file
   Future<void> deleteSavedPatch(SavedPatchFile patchFile) async {
     try {
+      // Delete from file system
       final file = File(patchFile.filePath);
-      await file.delete();
+      if (await file.exists()) {
+        await file.delete();
+      }
+
+      // Remove from SharedPreferences
+      if (folderPath != null) {
+        await PatchPreferencesHelper.removePatchFile(folderPath!, patchFile.fileName);
+      }
 
       setState(() {
         savedPatchFiles.remove(patchFile);
-        result += 'Deleted patch file: ${patchFile.fileName}\n';
+        result += '✅ Deleted patch file: ${patchFile.fileName}\n';
       });
 
     } catch (e) {
       setState(() {
-        result += 'Error deleting patch file: $e\n';
+        result += '❌ Error deleting patch file: $e\n';
       });
     }
   }
 
-  // New method to add patch entry
-  void _addPatchEntry() {
+  // Enhanced method to add patch entry with immediate persistence
+  Future<void> _addPatchEntry() async {
     if (_patchFolderController.text.trim().isEmpty ||
         _patchFileNameController.text.trim().isEmpty ||
         _patchFileContentController.text.trim().isEmpty) {
       setState(() {
-        result += '\nPlease fill in all patch file fields.\n';
+        result += '\n⚠️ Please fill in all patch file fields.\n';
       });
       return;
     }
 
+    final entry = PatchFileEntry(
+      folderName: _patchFolderController.text.trim(),
+      fileName: _patchFileNameController.text.trim(),
+      fileContent: _patchFileContentController.text.trim(),
+    );
+
     setState(() {
-      patchEntries.add(PatchFileEntry(
-        folderName: _patchFolderController.text.trim(),
-        fileName: _patchFileNameController.text.trim(),
-        fileContent: _patchFileContentController.text.trim(),
-      ));
+      patchEntries.add(entry);
 
       // Clear the input fields
       _patchFolderController.clear();
       _patchFileNameController.clear();
       _patchFileContentController.clear();
 
-      result += 'Added patch entry: ${patchEntries.last.folderName}/${patchEntries.last.fileName}\n';
+      result += '✅ Added patch entry: ${entry.folderName}/${entry.fileName}\n';
     });
+
+    // Immediately save to SharedPreferences for persistence
+    await _savePatchEntryToPreferences();
   }
 
-  // Modified method to create patch file in project directory
+  // Enhanced method to create patch file with better file management
   Future<void> createPatchFile() async {
     if (patchEntries.isEmpty) {
       setState(() {
-        result += '\nNo patch entries to create. Please add at least one entry.\n';
+        result += '\n⚠️ No patch entries to create. Please add at least one entry.\n';
       });
       return;
     }
 
     if (folderPath == null) {
       setState(() {
-        result += '\nNo project selected. Please create or select a project first.\n';
+        result += '\n⚠️ No project selected. Please create or select a project first.\n';
       });
       return;
     }
@@ -452,27 +1105,45 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
         }
       }
 
-      // Write patch file
+      // Write patch file to disk
       final patchFile = File(patchFilePath);
       await patchFile.writeAsString(patchContent.toString());
 
+      // Create SavedPatchFile object
+      final savedPatch = SavedPatchFile(
+        fileName: patchFileName,
+        filePath: patchFilePath,
+        createdAt: DateTime.now(),
+        entriesCount: patchEntries.length,
+      );
+
+      // Save to SharedPreferences (add to existing patches, don't replace)
+      final currentPatches = await PatchPreferencesHelper.loadPatchFiles(folderPath!);
+      currentPatches.add(savedPatch);
+      await PatchPreferencesHelper.savePatchFiles(folderPath!, currentPatches);
+
       setState(() {
-        result += 'Patch file created successfully!\n';
+        result += '✅ Patch file created successfully!\n';
         result += 'Location: patches/${patchFileName}\n';
         result += 'Entries included: ${patchEntries.length}\n';
         result += 'To apply: git apply patches/${patchFileName}\n';
-
-        // Clear patch entries after successful creation
-        patchEntries.clear();
         isCreatingPatch = false;
       });
+
+      // DON'T clear patch entries automatically - let user decide
+      // Keep the entries for potential reuse or modification
 
       // Reload saved patch files to include the new one
       await loadSavedPatchFiles();
 
+      // Show success message
+      setState(() {
+        result += '💡 Patch entries are preserved for reuse. Use "Clear All" if you want to start fresh.\n';
+      });
+
     } catch (e) {
       setState(() {
-        result += 'Error creating patch file: $e\n';
+        result += '❌ Error creating patch file: $e\n';
         isCreatingPatch = false;
       });
     }
@@ -485,12 +1156,19 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
     return hash.toRadixString(16).padLeft(7, '0').substring(0, 7);
   }
 
-  // Method to remove patch entry
-  void _removePatchEntry(int index) {
-    setState(() {
-      final removed = patchEntries.removeAt(index);
-      result += 'Removed patch entry: ${removed.folderName}/${removed.fileName}\n';
-    });
+  // Enhanced method to remove patch entry with immediate persistence
+  Future<void> _removePatchEntry(int index) async {
+    if (index < patchEntries.length) {
+      final removed = patchEntries[index];
+
+      setState(() {
+        patchEntries.removeAt(index);
+        result += '✅ Removed patch entry: ${removed.folderName}/${removed.fileName}\n';
+      });
+
+      // Immediately update SharedPreferences
+      await _savePatchEntryToPreferences();
+    }
   }
 
   Future<void> cloneRepository() async {
@@ -506,6 +1184,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
       widgetBranches = [];
       featureBranches = [];
       savedPatchFiles = [];
+      patchEntries = [];
       selectedSourceBranches.clear();
       destinationBranch = "main"; // Always reset to "main"
     });
@@ -514,7 +1193,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
     final gitPath = await findGitExecutable();
     if (gitPath == null) {
       setState(() {
-        result += 'Git executable not found. Please install Git.';
+        result += '❌ Git executable not found. Please install Git.';
         isCloning = false;
       });
       return;
@@ -535,7 +1214,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
       final targetDir = Directory(targetPath);
       if (await targetDir.exists()) {
         setState(() {
-          result += 'Error: Folder "$folderName" already exists in the selected directory.\n';
+          result += '❌ Error: Folder "$folderName" already exists in the selected directory.\n';
           isCloning = false;
         });
         return;
@@ -550,25 +1229,27 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
 
       if (cloneResult.contains('Error:')) {
         setState(() {
-          result += 'Clone failed: $cloneResult\n';
+          result += '❌ Clone failed: $cloneResult\n';
           isCloning = false;
         });
         return;
       }
 
       setState(() {
-        result += 'Clone successful!\n$cloneResult\n';
+        result += '✅ Clone successful!\n$cloneResult\n';
         folderPath = targetPath;
         isCloning = false;
       });
 
-      // Load branches and patch files after successful clone
-      await loadBranches();
-      await loadSavedPatchFiles();
+      // Save as last used project
+      await PatchPreferencesHelper.saveLastProjectPath(targetPath);
+
+      // Load branches, patch files, and patch entries after successful clone
+      await _loadProjectData();
 
     } catch (e) {
       setState(() {
-        result += 'Clone failed with error: $e\n';
+        result += '❌ Clone failed with error: $e\n';
         isCloning = false;
       });
     }
@@ -588,6 +1269,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
       widgetBranches = [];
       featureBranches = [];
       savedPatchFiles = [];
+      patchEntries = [];
       selectedSourceBranches.clear();
       destinationBranch = "main"; // Always reset to "main"
     });
@@ -595,7 +1277,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
     final gitDir = Directory(p.join(selectedDir, '.git'));
     if (!await gitDir.exists()) {
       setState(() {
-        result += 'This folder is not a Git repository.';
+        result += '❌ This folder is not a Git repository.';
       });
       return;
     }
@@ -604,14 +1286,17 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
     final gitPath = await findGitExecutable();
     if (gitPath == null) {
       setState(() {
-        result += 'Git executable not found. Please install Git.';
+        result += '❌ Git executable not found. Please install Git.';
       });
       return;
     }
 
     setState(() {
-      result += 'Git found at: $gitPath\n';
+      result += '✅ Git found at: $gitPath\n';
     });
+
+    // Save as last used project
+    await PatchPreferencesHelper.saveLastProjectPath(selectedDir);
 
     final configFile = File(p.join(gitDir.path, 'config'));
     if (await configFile.exists()) {
@@ -629,8 +1314,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
       });
     }
 
-    await loadBranches();
-    await loadSavedPatchFiles();
+    await _loadProjectData();
   }
 
   Future<void> loadBranches() async {
@@ -696,10 +1380,10 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
             branch.startsWith('feature-'))
             .toList();
 
-        result += 'Local branches: ${localBranches.join(', ')}\n';
-        result += 'Remote branches: ${remoteBranches.join(', ')}\n';
-        result += 'Widget branches: ${widgetBranches.join(', ')}\n';
-        result += 'Feature branches: ${featureBranches.join(', ')}\n';
+        result += '✅ Local branches: ${localBranches.join(', ')}\n';
+        result += '✅ Remote branches: ${remoteBranches.join(', ')}\n';
+        result += '✅ Widget branches: ${widgetBranches.join(', ')}\n';
+        result += '✅ Feature branches: ${featureBranches.join(', ')}\n';
 
         // Clear invalid selections
         selectedSourceBranches.removeWhere((branch) => !allBranches.contains(branch));
@@ -709,7 +1393,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
       });
     } catch (e) {
       setState(() {
-        result += 'Error loading branches: $e\n';
+        result += '❌ Error loading branches: $e\n';
         isLoading = false;
       });
     }
@@ -751,14 +1435,14 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
   Future<void> mergeBranches() async {
     if (folderPath == null || selectedSourceBranches.isEmpty) {
       setState(() {
-        result += '\nPlease select source branch(es).';
+        result += '\n⚠️ Please select source branch(es).';
       });
       return;
     }
 
     if (selectedSourceBranches.contains(destinationBranch)) {
       setState(() {
-        result += '\nSource and destination branches cannot be the same.';
+        result += '\n⚠️ Source and destination branches cannot be the same.';
       });
       return;
     }
@@ -823,7 +1507,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
         if (mergeOutput.contains('Error:')) {
           allMergesSuccessful = false;
           setState(() {
-            result += 'Merge of $sourceBranch failed. Please resolve conflicts manually.\n';
+            result += '❌ Merge of $sourceBranch failed. Please resolve conflicts manually.\n';
           });
           break; // Stop merging if one fails
         }
@@ -831,14 +1515,14 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
 
       if (allMergesSuccessful) {
         setState(() {
-          result += 'All merges completed successfully!\n';
+          result += '✅ All merges completed successfully!\n';
           mergeProgress = 1.0;
         });
       }
 
     } catch (e) {
       setState(() {
-        result += 'Merge failed with error: $e\n';
+        result += '❌ Merge failed with error: $e\n';
       });
     }
 
@@ -1077,411 +1761,622 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       extendBodyBehindAppBar: true,
-      body: Center(
-        child: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 32),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Center the title horizontally
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    ShaderMask(
-                      shaderCallback: (Rect bounds) {
-                        return const LinearGradient(
-                          colors: [Color(0xFFB388FF), Color(0xFF00E5FF)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ).createShader(bounds);
-                      },
-                      child: const Text(
-                        'CodeCrafter',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontFamily: 'Orbitron',
-                          fontSize: 22,
-                          letterSpacing: 1.2,
-                          shadows: [Shadow(color: Color(0xFFB388FF), blurRadius: 12)],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-
-                // Clone Section
-                FuturisticGlassPanel(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              Color(0xFF0A0A0A),
+              Color(0xFF1A0A2E),
+              Color(0xFF16213E),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+        ),
+        child: Center(
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 32),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Center the title horizontally
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Text('Create Flutter project', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFFB388FF), fontFamily: 'Orbitron', letterSpacing: 1.1)),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: _folderNameController,
-                        style: const TextStyle(color: Colors.white, fontFamily: 'Orbitron'),
-                        decoration: const InputDecoration(
-                          labelText: 'Folder Name (optional)',
-                          labelStyle: TextStyle(color: Color(0xFFB388FF)),
-                          border: OutlineInputBorder(),
+                      ShaderMask(
+                        shaderCallback: (Rect bounds) {
+                          return const LinearGradient(
+                            colors: [Color(0xFFB388FF), Color(0xFF00E5FF)],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                          ).createShader(bounds);
+                        },
+                        child: const Text(
+                          'CodeCrafter Pro',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'Orbitron',
+                            fontSize: 22,
+                            letterSpacing: 1.2,
+                            shadows: [Shadow(color: Color(0xFFB388FF), blurRadius: 12)],
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          ElevatedButton.icon(
-                            onPressed: isCloning ? null : cloneRepository,
-                            icon: isCloning
-                                ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFB388FF)),
-                            )
-                                : const Icon(Icons.cloud_download, color: Colors.black),
-                            label: Text(isCloning ? 'Creating Project...' : 'Create Project', style: const TextStyle(color: Colors.black, fontFamily: 'Orbitron')),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFFB388FF),
-                              foregroundColor: Colors.black,
-                              elevation: 10,
-                              shadowColor: const Color(0xFFB388FF),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF4CAF50),
+                          borderRadius: BorderRadius.circular(8),
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0xFF4CAF50).withOpacity(0.3),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
                             ),
+                          ],
+                        ),
+                        child: const Text(
+                          'PERSISTENT',
+                          style: TextStyle(
+                            color: Colors.black,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'Orbitron',
+                            fontSize: 10,
                           ),
-                          const SizedBox(width: 12),
-                          ElevatedButton.icon(
-                            onPressed: pickFolderAndReadRepo,
-                            icon: const Icon(Icons.folder_open, color: Colors.black),
-                            label: const Text('Select Existing Project', style: TextStyle(color: Colors.black, fontFamily: 'Orbitron')),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF00E5FF),
-                              foregroundColor: Colors.black,
-                              elevation: 10,
-                              shadowColor: const Color(0xFF00E5FF),
-                            ),
-                          ),
-                        ],
+                        ),
                       ),
                     ],
                   ),
-                ),
-                const SizedBox(height: 28),
+                  const SizedBox(height: 24),
 
-                // NEW: Patch File Creator Section
-                FuturisticGlassPanel(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          const Icon(Icons.build_circle, color: Color(0xFFFF6B35), size: 24),
-                          const SizedBox(width: 10),
-                          const Text(
-                            'Create Patch File',
-                            style: TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFFFF6B35),
-                              fontFamily: 'Orbitron',
-                              letterSpacing: 1.1,
-                            ),
+                  // Clone Section
+                  FuturisticGlassPanel(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text('Create Flutter project', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFFB388FF), fontFamily: 'Orbitron', letterSpacing: 1.1)),
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: _folderNameController,
+                          style: const TextStyle(color: Colors.white, fontFamily: 'Orbitron'),
+                          decoration: const InputDecoration(
+                            labelText: 'Folder Name (optional)',
+                            labelStyle: TextStyle(color: Color(0xFFB388FF)),
+                            border: OutlineInputBorder(),
                           ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Patch entry form
-                      Row(
-                        children: [
-                          Expanded(
-                            flex: 2,
-                            child: TextField(
-                              controller: _patchFolderController,
-                              style: const TextStyle(color: Colors.white, fontFamily: 'Orbitron'),
-                              decoration: const InputDecoration(
-                                labelText: 'Folder Name',
-                                labelStyle: TextStyle(color: Color(0xFFFF6B35)),
-                                hintText: 'e.g., lib/widgets',
-                                hintStyle: TextStyle(color: Colors.white38),
-                                border: OutlineInputBorder(),
-                                focusedBorder: OutlineInputBorder(
-                                  borderSide: BorderSide(color: Color(0xFFFF6B35), width: 2),
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            flex: 2,
-                            child: TextField(
-                              controller: _patchFileNameController,
-                              style: const TextStyle(color: Colors.white, fontFamily: 'Orbitron'),
-                              decoration: const InputDecoration(
-                                labelText: 'File Name',
-                                labelStyle: TextStyle(color: Color(0xFFFF6B35)),
-                                hintText: 'e.g., custom_widget.dart',
-                                hintStyle: TextStyle(color: Colors.white38),
-                                border: OutlineInputBorder(),
-                                focusedBorder: OutlineInputBorder(
-                                  borderSide: BorderSide(color: Color(0xFFFF6B35), width: 2),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-
-                      TextField(
-                        controller: _patchFileContentController,
-                        style: const TextStyle(color: Colors.white, fontFamily: 'FiraMono', fontSize: 13),
-                        maxLines: 8,
-                        decoration: const InputDecoration(
-                          labelText: 'File Content',
-                          labelStyle: TextStyle(color: Color(0xFFFF6B35)),
-                          hintText: 'Enter your code here...',
-                          hintStyle: TextStyle(color: Colors.white38),
-                          border: OutlineInputBorder(),
-                          focusedBorder: OutlineInputBorder(
-                            borderSide: BorderSide(color: Color(0xFFFF6B35), width: 2),
-                          ),
-                          alignLabelWithHint: true,
                         ),
-                      ),
-                      const SizedBox(height: 12),
-
-                      Row(
-                        children: [
-                          ElevatedButton.icon(
-                            onPressed: _addPatchEntry,
-                            icon: const Icon(Icons.add, color: Colors.black),
-                            label: const Text(
-                              'Add Entry',
-                              style: TextStyle(color: Colors.black, fontFamily: 'Orbitron'),
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFFFF6B35),
-                              foregroundColor: Colors.black,
-                              elevation: 10,
-                              shadowColor: const Color(0xFFFF6B35),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          if (patchEntries.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
                             ElevatedButton.icon(
-                              onPressed: isCreatingPatch ? null : createPatchFile,
-                              icon: isCreatingPatch
+                              onPressed: isCloning ? null : cloneRepository,
+                              icon: isCloning
                                   ? const SizedBox(
                                 width: 18,
                                 height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFB388FF)),
                               )
-                                  : const Icon(Icons.file_download, color: Colors.black),
-                              label: Text(
-                                isCreatingPatch ? 'Creating...' : 'Create Patch',
-                                style: const TextStyle(color: Colors.black, fontFamily: 'Orbitron'),
-                              ),
+                                  : const Icon(Icons.cloud_download, color: Colors.black),
+                              label: Text(isCloning ? 'Creating Project...' : 'Create Project', style: const TextStyle(color: Colors.black, fontFamily: 'Orbitron')),
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF4CAF50),
+                                backgroundColor: const Color(0xFFB388FF),
                                 foregroundColor: Colors.black,
                                 elevation: 10,
-                                shadowColor: const Color(0xFF4CAF50),
+                                shadowColor: const Color(0xFFB388FF),
                               ),
                             ),
                             const SizedBox(width: 12),
                             ElevatedButton.icon(
-                              onPressed: () {
-                                setState(() {
-                                  patchEntries.clear();
-                                  result += 'Cleared all patch entries.\n';
-                                });
-                              },
-                              icon: const Icon(Icons.clear_all, color: Colors.black),
-                              label: const Text(
-                                'Clear All',
-                                style: TextStyle(color: Colors.black, fontFamily: 'Orbitron'),
-                              ),
+                              onPressed: pickFolderAndReadRepo,
+                              icon: const Icon(Icons.folder_open, color: Colors.black),
+                              label: const Text('Select Existing Project', style: TextStyle(color: Colors.black, fontFamily: 'Orbitron')),
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFFF44336),
+                                backgroundColor: const Color(0xFF00E5FF),
                                 foregroundColor: Colors.black,
                                 elevation: 10,
-                                shadowColor: const Color(0xFFF44336),
+                                shadowColor: const Color(0xFF00E5FF),
                               ),
                             ),
                           ],
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Display current patch entries
-                      Row(
-                        children: [
-                          const Icon(Icons.list_alt, color: Color(0xFFFF6B35), size: 20),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Patch Entries (${patchEntries.length})',
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFFFF6B35),
-                              fontFamily: 'Orbitron',
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      _buildPatchEntriesList(),
-                    ],
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(height: 28),
+                  const SizedBox(height: 28),
 
-                // NEW: Saved Patch Files Section
-                if (folderPath != null) ...[
+                  // Enhanced Patch File Creator Section
                   FuturisticGlassPanel(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Row(
                           children: [
-                            const Icon(Icons.folder_special, color: Color(0xFF4CAF50), size: 24),
+                            const Icon(Icons.build_circle, color: Color(0xFFFF6B35), size: 24),
                             const SizedBox(width: 10),
                             const Text(
-                              'Saved Patch Files',
+                              'Create Patch File',
                               style: TextStyle(
                                 fontSize: 20,
                                 fontWeight: FontWeight.bold,
-                                color: Color(0xFF4CAF50),
+                                color: Color(0xFFFF6B35),
                                 fontFamily: 'Orbitron',
                                 letterSpacing: 1.1,
                               ),
                             ),
                             const Spacer(),
-                            IconButton(
-                              onPressed: loadSavedPatchFiles,
-                              icon: const Icon(Icons.refresh, color: Color(0xFF4CAF50)),
-                              tooltip: 'Refresh Patch Files',
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF4CAF50),
+                                borderRadius: BorderRadius.circular(6),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(0xFF4CAF50).withOpacity(0.3),
+                                    blurRadius: 4,
+                                  ),
+                                ],
+                              ),
+                              child: const Text(
+                                'AUTO-SAVE',
+                                style: TextStyle(
+                                  color: Colors.black,
+                                  fontWeight: FontWeight.bold,
+                                  fontFamily: 'Orbitron',
+                                  fontSize: 8,
+                                ),
+                              ),
                             ),
                           ],
                         ),
                         const SizedBox(height: 16),
 
-                        Text(
-                          'Saved patch files (${savedPatchFiles.length})',
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF4CAF50),
-                            fontFamily: 'Orbitron',
+                        // Patch entry form
+                        Row(
+                          children: [
+                            Expanded(
+                              flex: 2,
+                              child: TextField(
+                                controller: _patchFolderController,
+                                style: const TextStyle(color: Colors.white, fontFamily: 'Orbitron'),
+                                decoration: const InputDecoration(
+                                  labelText: 'Folder Name',
+                                  labelStyle: TextStyle(color: Color(0xFFFF6B35)),
+                                  hintText: 'e.g., lib/widgets',
+                                  hintStyle: TextStyle(color: Colors.white38),
+                                  border: OutlineInputBorder(),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderSide: BorderSide(color: Color(0xFFFF6B35), width: 2),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              flex: 2,
+                              child: TextField(
+                                controller: _patchFileNameController,
+                                style: const TextStyle(color: Colors.white, fontFamily: 'Orbitron'),
+                                decoration: const InputDecoration(
+                                  labelText: 'File Name',
+                                  labelStyle: TextStyle(color: Color(0xFFFF6B35)),
+                                  hintText: 'e.g., custom_widget.dart',
+                                  hintStyle: TextStyle(color: Colors.white38),
+                                  border: OutlineInputBorder(),
+                                  focusedBorder: OutlineInputBorder(
+                                    borderSide: BorderSide(color: Color(0xFFFF6B35), width: 2),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+
+                        TextField(
+                          controller: _patchFileContentController,
+                          style: const TextStyle(color: Colors.white, fontFamily: 'FiraMono', fontSize: 13),
+                          maxLines: 8,
+                          decoration: const InputDecoration(
+                            labelText: 'File Content',
+                            labelStyle: TextStyle(color: Color(0xFFFF6B35)),
+                            hintText: 'Enter your code here...',
+                            hintStyle: TextStyle(color: Colors.white38),
+                            border: OutlineInputBorder(),
+                            focusedBorder: OutlineInputBorder(
+                              borderSide: BorderSide(color: Color(0xFFFF6B35), width: 2),
+                            ),
+                            alignLabelWithHint: true,
                           ),
                         ),
-                        const SizedBox(height: 8),
-                        _buildSavedPatchFilesList(),
+                        const SizedBox(height: 12),
 
-                        if (savedPatchFiles.isNotEmpty) ...[
-                          const SizedBox(height: 12),
-                          const Text(
-                            '💡 Click the play button to apply a patch file to your project.',
-                            style: TextStyle(
-                              color: Colors.white54,
-                              fontSize: 12,
-                              fontStyle: FontStyle.italic,
-                              fontFamily: 'Orbitron',
+                        Row(
+                          children: [
+                            ElevatedButton.icon(
+                              onPressed: _addPatchEntry,
+                              icon: const Icon(Icons.add, color: Colors.black),
+                              label: const Text(
+                                'Add Entry',
+                                style: TextStyle(color: Colors.black, fontFamily: 'Orbitron'),
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFFFF6B35),
+                                foregroundColor: Colors.black,
+                                elevation: 10,
+                                shadowColor: const Color(0xFFFF6B35),
+                              ),
                             ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 28),
-                ],
-
-                if (folderPath != null && !isCloning) ...[
-                  // Merge Section
-                  FuturisticGlassPanel(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (isLoading && mergeProgress > 0.0) ...[
-                          Center(
-                            child: Column(
-                              children: [
-                                SizedBox(
-                                  width: 260,
-                                  child: LinearProgressIndicator(
-                                    value: mergeProgress,
-                                    minHeight: 10,
-                                    backgroundColor: Colors.white24,
-                                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFB388FF)),
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                                Text(
-                                  '${(mergeProgress * 100).toInt()}% ${mergeProgress < 1.0 ? 'completing' : 'completed'}',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontFamily: 'Orbitron',
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 16,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-                        ] else if (isLoading) ...[
-                          const Center(child: CircularProgressIndicator()),
-                          const SizedBox(height: 20),
-                        ] else ...[
-                          _buildBranchSection('List of widgets', widgetBranches, const Color(0xFF7C4DFF)),
-                          _buildBranchSection('List of features', featureBranches, const Color(0xFF00E5FF)),
-                          const SizedBox(height: 18),
-                          Row(
-                            children: [
+                            const SizedBox(width: 12),
+                            if (patchEntries.isNotEmpty) ...[
                               ElevatedButton.icon(
-                                onPressed: (selectedSourceBranches.isEmpty || isLoading)
-                                    ? null
-                                    : mergeBranches,
-                                icon: isLoading
+                                onPressed: isCreatingPatch ? null : createPatchFile,
+                                icon: isCreatingPatch
                                     ? const SizedBox(
                                   width: 18,
                                   height: 18,
-                                  child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFB388FF)),
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
                                 )
-                                    : const Icon(Icons.merge_type, color: Colors.black),
-                                label: const Text('Apply in project', style: TextStyle(color: Colors.black, fontFamily: 'Orbitron')),
+                                    : const Icon(Icons.file_download, color: Colors.black),
+                                label: Text(
+                                  isCreatingPatch ? 'Creating...' : 'Create Patch',
+                                  style: const TextStyle(color: Colors.black, fontFamily: 'Orbitron'),
+                                ),
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFFB388FF),
+                                  backgroundColor: const Color(0xFF4CAF50),
                                   foregroundColor: Colors.black,
                                   elevation: 10,
-                                  shadowColor: const Color(0xFFB388FF),
+                                  shadowColor: const Color(0xFF4CAF50),
                                 ),
                               ),
                               const SizedBox(width: 12),
                               ElevatedButton.icon(
-                                onPressed: () {
+                                onPressed: () async {
+                                  // Clear from SharedPreferences but keep for potential reuse
+                                  if (folderPath != null) {
+                                    await PatchPreferencesHelper.clearPatchEntries(folderPath!);
+                                  }
                                   setState(() {
-                                    selectedSourceBranches.clear();
+                                    patchEntries.clear();
+                                    result += '✅ Cleared all patch entries from persistent storage.\n';
                                   });
                                 },
-                                icon: const Icon(Icons.clear, color: Colors.black),
-                                label: const Text('Clear Selection', style: TextStyle(color: Colors.black, fontFamily: 'Orbitron')),
+                                icon: const Icon(Icons.clear_all, color: Colors.black),
+                                label: const Text(
+                                  'Clear All',
+                                  style: TextStyle(color: Colors.black, fontFamily: 'Orbitron'),
+                                ),
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF00E5FF),
+                                  backgroundColor: const Color(0xFFF44336),
                                   foregroundColor: Colors.black,
                                   elevation: 10,
-                                  shadowColor: const Color(0xFF00E5FF),
+                                  shadowColor: const Color(0xFFF44336),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              // Debug button to show all stored data
+                              ElevatedButton.icon(
+                                onPressed: () async {
+                                  await PatchPreferencesHelper.debugPrintAllData();
+                                  setState(() {
+                                    result += '🔍 Debug data printed to console. Check logs.\n';
+                                  });
+                                },
+                                icon: const Icon(Icons.bug_report, color: Colors.black, size: 16),
+                                label: const Text(
+                                  'Debug',
+                                  style: TextStyle(color: Colors.black, fontFamily: 'Orbitron', fontSize: 12),
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFFFFEB3B),
+                                  foregroundColor: Colors.black,
+                                  elevation: 8,
+                                  shadowColor: const Color(0xFFFFEB3B),
+                                  minimumSize: const Size(80, 36),
                                 ),
                               ),
                             ],
-                          ),
-                        ],
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+
+                        // Display current patch entries
+                        Row(
+                          children: [
+                            const Icon(Icons.list_alt, color: Color(0xFFFF6B35), size: 20),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Patch Entries (${patchEntries.length})',
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFFFF6B35),
+                                fontFamily: 'Orbitron',
+                              ),
+                            ),
+                            const Spacer(),
+                            if (folderPath != null)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF4CAF50).withOpacity(0.2),
+                                  border: Border.all(color: const Color(0xFF4CAF50), width: 1),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: const Text(
+                                  'Auto-saved & Persistent',
+                                  style: TextStyle(
+                                    color: Color(0xFF4CAF50),
+                                    fontFamily: 'Orbitron',
+                                    fontSize: 8,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        _buildPatchEntriesList(),
                       ],
                     ),
                   ),
                   const SizedBox(height: 28),
+
+                  // Enhanced Saved Patch Files Section
+                  if (folderPath != null) ...[
+                    FuturisticGlassPanel(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.folder_special, color: Color(0xFF4CAF50), size: 24),
+                              const SizedBox(width: 10),
+                              const Text(
+                                'Saved Patch Files',
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF4CAF50),
+                                  fontFamily: 'Orbitron',
+                                  letterSpacing: 1.1,
+                                ),
+                              ),
+                              const Spacer(),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF4CAF50),
+                                  borderRadius: BorderRadius.circular(6),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: const Color(0xFF4CAF50).withOpacity(0.3),
+                                      blurRadius: 4,
+                                    ),
+                                  ],
+                                ),
+                                child: const Text(
+                                  'PERSISTENT',
+                                  style: TextStyle(
+                                    color: Colors.black,
+                                    fontWeight: FontWeight.bold,
+                                    fontFamily: 'Orbitron',
+                                    fontSize: 8,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              IconButton(
+                                onPressed: loadSavedPatchFiles,
+                                icon: const Icon(Icons.refresh, color: Color(0xFF4CAF50)),
+                                tooltip: 'Refresh Patch Files',
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+
+                          Text(
+                            'Saved patch files (${savedPatchFiles.length})',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF4CAF50),
+                              fontFamily: 'Orbitron',
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          _buildSavedPatchFilesList(),
+
+                          if (savedPatchFiles.isNotEmpty) ...[
+                            const SizedBox(height: 12),
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF00E5FF).withOpacity(0.1),
+                                border: Border.all(color: const Color(0xFF00E5FF).withOpacity(0.3)),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.info_outline, color: Color(0xFF00E5FF), size: 16),
+                                  const SizedBox(width: 8),
+                                  const Expanded(
+                                    child: Text(
+                                      'Patch files are stored persistently and will survive app restarts. Data is saved in both SharedPreferences and file system.',
+                                      style: TextStyle(
+                                        color: Color(0xFF00E5FF),
+                                        fontSize: 11,
+                                        fontFamily: 'Orbitron',
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            const Text(
+                              '💡 Click the play button to apply a patch file to your project. Patch entries are preserved for reuse even after creating patches.',
+                              style: TextStyle(
+                                color: Colors.white54,
+                                fontSize: 12,
+                                fontStyle: FontStyle.italic,
+                                fontFamily: 'Orbitron',
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 28),
+                  ],
+
+                  if (folderPath != null && !isCloning) ...[
+                    // Merge Section
+                    FuturisticGlassPanel(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (isLoading && mergeProgress > 0.0) ...[
+                            Center(
+                              child: Column(
+                                children: [
+                                  SizedBox(
+                                    width: 260,
+                                    child: LinearProgressIndicator(
+                                      value: mergeProgress,
+                                      minHeight: 10,
+                                      backgroundColor: Colors.white24,
+                                      valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFB388FF)),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 12),
+                                  Text(
+                                    '${(mergeProgress * 100).toInt()}% ${mergeProgress < 1.0 ? 'completing' : 'completed'}',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontFamily: 'Orbitron',
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 20),
+                          ] else if (isLoading) ...[
+                            const Center(child: CircularProgressIndicator()),
+                            const SizedBox(height: 20),
+                          ] else ...[
+                            _buildBranchSection('List of widgets', widgetBranches, const Color(0xFF7C4DFF)),
+                            _buildBranchSection('List of features', featureBranches, const Color(0xFF00E5FF)),
+                            const SizedBox(height: 18),
+                            Row(
+                              children: [
+                                ElevatedButton.icon(
+                                  onPressed: (selectedSourceBranches.isEmpty || isLoading)
+                                      ? null
+                                      : mergeBranches,
+                                  icon: isLoading
+                                      ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFB388FF)),
+                                  )
+                                      : const Icon(Icons.merge_type, color: Colors.black),
+                                  label: const Text('Apply in project', style: TextStyle(color: Colors.black, fontFamily: 'Orbitron')),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFFB388FF),
+                                    foregroundColor: Colors.black,
+                                    elevation: 10,
+                                    shadowColor: const Color(0xFFB388FF),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                ElevatedButton.icon(
+                                  onPressed: () {
+                                    setState(() {
+                                      selectedSourceBranches.clear();
+                                    });
+                                  },
+                                  icon: const Icon(Icons.clear, color: Colors.black),
+                                  label: const Text('Clear Selection', style: TextStyle(color: Colors.black, fontFamily: 'Orbitron')),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF00E5FF),
+                                    foregroundColor: Colors.black,
+                                    elevation: 10,
+                                    shadowColor: const Color(0xFF00E5FF),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 28),
+                  ],
+
+                  // Result output section
+                  if (result.isNotEmpty) ...[
+                    FuturisticGlassPanel(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.terminal, color: Color(0xFF00E5FF), size: 20),
+                              const SizedBox(width: 8),
+                              const Text(
+                                'Output',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF00E5FF),
+                                  fontFamily: 'Orbitron',
+                                ),
+                              ),
+                              const Spacer(),
+                              IconButton(
+                                onPressed: () {
+                                  setState(() {
+                                    result = '';
+                                  });
+                                },
+                                icon: const Icon(Icons.clear, color: Colors.white54, size: 18),
+                                tooltip: 'Clear Output',
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          Container(
+                            width: double.infinity,
+                            height: 200,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.6),
+                              border: Border.all(color: const Color(0xFF00E5FF).withOpacity(0.3)),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: SingleChildScrollView(
+                              child: Text(
+                                result,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
+                                  fontFamily: 'Courier',
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
         ),
