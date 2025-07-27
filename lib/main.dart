@@ -89,6 +89,7 @@ class PatchPreferencesHelper {
         'filePath': patch.filePath,
         'createdAt': patch.createdAt.millisecondsSinceEpoch,
         'entriesCount': patch.entriesCount,
+        'flutterCommands': patch.flutterCommands, // Include Flutter commands
       }).toList();
 
       final jsonData = jsonEncode(patchData);
@@ -129,6 +130,7 @@ class PatchPreferencesHelper {
           filePath: data['filePath'].toString(),
           createdAt: DateTime.fromMillisecondsSinceEpoch(data['createdAt'] as int),
           entriesCount: data['entriesCount'] as int? ?? 0,
+          flutterCommands: List<String>.from(data['flutterCommands'] ?? []), // Load Flutter commands
         );
       }).where((patch) => patch != null).cast<SavedPatchFile>().toList();
 
@@ -562,18 +564,20 @@ class PatchFileEntry {
   }
 }
 
-// New class for saved patch files
+// Enhanced SavedPatchFile class with Flutter commands support
 class SavedPatchFile {
   String fileName;
   String filePath;
   DateTime createdAt;
   int entriesCount;
+  List<String> flutterCommands; // Flutter commands to execute after applying patch
 
   SavedPatchFile({
     required this.fileName,
     required this.filePath,
     required this.createdAt,
     required this.entriesCount,
+    this.flutterCommands = const [], // Default to empty list
   });
 
   Map<String, dynamic> toJson() {
@@ -582,6 +586,7 @@ class SavedPatchFile {
       'filePath': filePath,
       'createdAt': createdAt.millisecondsSinceEpoch,
       'entriesCount': entriesCount,
+      'flutterCommands': flutterCommands, // Include Flutter commands in JSON
     };
   }
 
@@ -591,6 +596,7 @@ class SavedPatchFile {
       filePath: json['filePath'] ?? '',
       createdAt: DateTime.fromMillisecondsSinceEpoch(json['createdAt'] ?? 0),
       entriesCount: json['entriesCount'] ?? 0,
+      flutterCommands: List<String>.from(json['flutterCommands'] ?? []), // Load Flutter commands
     );
   }
 }
@@ -700,12 +706,16 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
   final TextEditingController _patchFileNameController = TextEditingController();
   final TextEditingController _patchFileContentController = TextEditingController();
   final TextEditingController _customPatchNameController = TextEditingController();
+  final TextEditingController _flutterCommandController = TextEditingController(); // New controller for Flutter commands
 
   // List to store multiple patch file entries (now loaded from SharedPreferences)
   List<PatchFileEntry> patchEntries = [];
 
   // List to store saved patch files (now loaded from SharedPreferences)
   List<SavedPatchFile> savedPatchFiles = [];
+
+  // List to store Flutter commands for the current patch
+  List<String> flutterCommands = [];
 
   List<String> localBranches = [];
   List<String> remoteBranches = [];
@@ -785,6 +795,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
     _patchFileNameController.dispose();
     _patchFileContentController.dispose();
     _customPatchNameController.dispose();
+    _flutterCommandController.dispose();
     super.dispose();
   }
 
@@ -862,6 +873,101 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
     return null;
   }
 
+  // Helper method to parse Flutter commands from patch file content
+  List<String> _parseFlutterCommandsFromPatchContent(String content) {
+    final List<String> commands = [];
+    final lines = content.split('\n');
+    
+    print('🔍 Parsing Flutter commands from patch content...');
+    print('Content preview: ${content.substring(0, content.length > 200 ? 200 : content.length)}...');
+    
+    for (final line in lines) {
+      if (line.startsWith('# Commands: ')) {
+        final commandsStr = line.substring('# Commands: '.length);
+        print('🔍 Found commands line: $commandsStr');
+        
+        // Parse commands like "flutter pub get, flutter build" into individual commands
+        final commandParts = commandsStr.split(', ');
+        for (final part in commandParts) {
+          if (part.startsWith('flutter ')) {
+            // Remove 'flutter ' prefix to get just the command
+            final command = part.substring('flutter '.length);
+            commands.add(command);
+            print('🔍 Parsed command: $command');
+          }
+        }
+        break; // Found the commands line, no need to continue
+      }
+    }
+    
+    print('🔍 Total commands parsed: ${commands.length}');
+    return commands;
+  }
+
+  // Helper method to compare two lists of Flutter commands
+  bool _areFlutterCommandsEqual(List<String> commands1, List<String> commands2) {
+    if (commands1.length != commands2.length) return false;
+    for (int i = 0; i < commands1.length; i++) {
+      if (commands1[i] != commands2[i]) return false;
+    }
+    return true;
+  }
+
+  // Method to refresh saved patches and re-parse Flutter commands from content
+  Future<void> refreshSavedPatches() async {
+    setState(() {
+      result += '\n--- Refreshing Saved Patch Files ---\n';
+    });
+
+    try {
+      final repoKey = PatchPreferencesHelper._normalizeRepoIdentifier(repoUrl);
+      final patchesBasePath = await PatchPreferencesHelper.getFixedStorageDir();
+      final patchesDir = Directory(patchesBasePath);
+      
+      if (await patchesDir.exists()) {
+        final patchFiles = await patchesDir.list()
+            .where((entity) => entity is File && entity.path.endsWith('.patch'))
+            .cast<File>()
+            .toList();
+
+        List<SavedPatchFile> refreshedPatches = [];
+        
+        for (final patchFile in patchFiles) {
+          final fileName = p.basename(patchFile.path);
+          final stat = await patchFile.stat();
+          final content = await patchFile.readAsString();
+          final entriesCount = 'diff --git'.allMatches(content).length;
+          final flutterCommands = _parseFlutterCommandsFromPatchContent(content);
+          
+          final refreshedPatch = SavedPatchFile(
+            fileName: fileName,
+            filePath: patchFile.path,
+            createdAt: stat.modified,
+            entriesCount: entriesCount,
+            flutterCommands: flutterCommands,
+          );
+          
+          refreshedPatches.add(refreshedPatch);
+          setState(() {
+            result += '✅ Refreshed ${fileName}: ${flutterCommands.length} Flutter commands\n';
+          });
+        }
+        
+        // Save refreshed patches to SharedPreferences
+        await PatchPreferencesHelper.savePatchFiles(repoKey, refreshedPatches);
+        
+        setState(() {
+          savedPatchFiles = refreshedPatches;
+          result += '✅ All patches refreshed and saved to persistent storage.\n';
+        });
+      }
+    } catch (e) {
+      setState(() {
+        result += '❌ Error refreshing saved patch files: $e\n';
+      });
+    }
+  }
+
   // Enhanced method to load saved patch files with better persistence
   Future<void> loadSavedPatchFiles() async {
     setState(() {
@@ -889,13 +995,20 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
           final content = await file.readAsString();
           final entriesCount = 'diff --git'.allMatches(content).length;
 
-          // Update if metadata has changed
-          if (patch.entriesCount != entriesCount || patch.createdAt != stat.modified) {
+          // Parse Flutter commands from the patch file content to ensure they're up to date
+          final flutterCommands = _parseFlutterCommandsFromPatchContent(content);
+          print('🔍 Existing patch ${patch.fileName} has ${patch.flutterCommands.length} stored commands and ${flutterCommands.length} parsed commands');
+
+          // Update if metadata has changed or Flutter commands are different
+          if (patch.entriesCount != entriesCount || 
+              patch.createdAt != stat.modified ||
+              !_areFlutterCommandsEqual(patch.flutterCommands, flutterCommands)) {
             validPatches.add(SavedPatchFile(
               fileName: patch.fileName,
               filePath: patch.filePath,
               createdAt: stat.modified,
               entriesCount: entriesCount,
+              flutterCommands: flutterCommands, // Use parsed commands from file content
             ));
             prefsNeedUpdate = true;
           } else {
@@ -921,16 +1034,21 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
           final existsInPrefs = validPatches.any((patch) => patch.fileName == fileName);
 
           if (!existsInPrefs) {
-            // Add new file to preferences
+            // Add new file to preferences and parse Flutter commands from content
             final stat = await patchFile.stat();
             final content = await patchFile.readAsString();
             final entriesCount = 'diff --git'.allMatches(content).length;
+            
+            // Parse Flutter commands from the patch file content
+            final flutterCommands = _parseFlutterCommandsFromPatchContent(content);
+            print('🔍 Loaded ${flutterCommands.length} Flutter commands for file: $fileName');
 
             final newPatch = SavedPatchFile(
               fileName: fileName,
               filePath: patchFile.path,
               createdAt: stat.modified,
               entriesCount: entriesCount,
+              flutterCommands: flutterCommands, // Parse commands from file content
             );
 
             validPatches.add(newPatch);
@@ -959,17 +1077,22 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
     }
   }
 
-  // Modified method to apply a saved patch file
+  // FIXED: Modified method to apply a saved patch file with proper Flutter commands execution
   Future<void> applySavedPatch(SavedPatchFile patchFile) async {
     if (folderPath == null) return;
 
     setState(() {
       result += '\n--- Applying Patch File ---\n';
       result += 'Applying: ${patchFile.fileName}\n';
+      result += 'Flutter commands to execute: ${patchFile.flutterCommands.length}\n';
+      if (patchFile.flutterCommands.isNotEmpty) {
+        result += 'Commands: ${patchFile.flutterCommands.map((cmd) => 'flutter $cmd').join(', ')}\n';
+      }
       isLoading = true;
     });
 
     try {
+      // Apply the patch file
       final applyResult = await runGit(['apply', patchFile.filePath], folderPath!);
 
       setState(() {
@@ -979,12 +1102,79 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
           result += '✅ Patch applied successfully!\n';
           result += 'Applied ${patchFile.entriesCount} file(s) to the project.\n';
         }
-        isLoading = false;
       });
+
+      // FIXED: Execute Flutter commands if patch was applied successfully and commands exist
+      if (!applyResult.contains('Error:') && patchFile.flutterCommands.isNotEmpty) {
+        setState(() {
+          result += '\n--- Executing Flutter Commands ---\n';
+          result += 'Found ${patchFile.flutterCommands.length} Flutter command(s) to execute:\n';
+        });
+
+        // Check if Flutter is available first
+        final flutterPath = await findFlutterExecutable();
+        if (flutterPath == null) {
+          setState(() {
+            result += '⚠️ Flutter not found. Skipping Flutter commands.\n';
+            result += 'Commands that would have been executed:\n';
+            for (int i = 0; i < patchFile.flutterCommands.length; i++) {
+              result += '  ${i + 1}. flutter ${patchFile.flutterCommands[i]}\n';
+            }
+            result += 'Please install Flutter and run these commands manually.\n';
+          });
+        } else {
+          setState(() {
+            result += '✅ Flutter found at: $flutterPath\n';
+          });
+
+          // Execute each Flutter command sequentially
+          for (int i = 0; i < patchFile.flutterCommands.length; i++) {
+            final command = patchFile.flutterCommands[i];
+            setState(() {
+              result += '\n[${i + 1}/${patchFile.flutterCommands.length}] Running: flutter $command\n';
+            });
+
+            try {
+              final flutterResult = await runFlutterCommand(command, folderPath!);
+              setState(() {
+                if (flutterResult.contains('Error:')) {
+                  result += '❌ Command failed: $flutterResult\n';
+                } else {
+                  result += '✅ Command completed successfully\n';
+                  // Only show first few lines of output to avoid clutter
+                  final outputLines = flutterResult.split('\n');
+                  final limitedOutput = outputLines.take(3).join('\n');
+                  if (outputLines.length > 3) {
+                    result += '$limitedOutput\n... (output truncated)\n';
+                  } else {
+                    result += '$limitedOutput\n';
+                  }
+                }
+              });
+            } catch (e) {
+              setState(() {
+                result += '❌ Error running Flutter command: $e\n';
+              });
+            }
+          }
+
+          setState(() {
+            result += '\n✅ All Flutter commands completed!\n';
+            result += '🎉 Patch applied successfully with ${patchFile.flutterCommands.length} Flutter command(s) executed!\n';
+          });
+        }
+      } else if (patchFile.flutterCommands.isEmpty) {
+        setState(() {
+          result += '📝 No Flutter commands associated with this patch.\n';
+        });
+      }
 
     } catch (e) {
       setState(() {
         result += '❌ Error applying patch: $e\n';
+      });
+    } finally {
+      setState(() {
         isLoading = false;
       });
     }
@@ -999,10 +1189,9 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
         await file.delete();
       }
 
-      // Remove from SharedPreferences
-      if (folderPath != null) {
-        await PatchPreferencesHelper.removePatchFile(folderPath!, patchFile.fileName);
-      }
+      // Remove from SharedPreferences using the normalized repo key
+      final repoKey = PatchPreferencesHelper._normalizeRepoIdentifier(repoUrl);
+      await PatchPreferencesHelper.removePatchFile(repoKey, patchFile.fileName);
 
       setState(() {
         savedPatchFiles.remove(patchFile);
@@ -1048,8 +1237,37 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
     await _savePatchEntryToPreferences();
   }
 
-  // Enhanced method to create patch file with better file management
-  // Enhanced method to create patch file from GitHub repository with better file management
+  // Method to add Flutter command
+  Future<void> _addFlutterCommand() async {
+    if (_flutterCommandController.text.trim().isEmpty) {
+      setState(() {
+        result += '\n⚠️ Please enter a Flutter command.\n';
+      });
+      return;
+    }
+
+    final command = _flutterCommandController.text.trim();
+
+    setState(() {
+      flutterCommands.add(command);
+      _flutterCommandController.clear();
+      result += '✅ Added Flutter command: flutter $command\n';
+    });
+  }
+
+  // Method to remove Flutter command
+  Future<void> _removeFlutterCommand(int index) async {
+    if (index < flutterCommands.length) {
+      final removed = flutterCommands[index];
+
+      setState(() {
+        flutterCommands.removeAt(index);
+        result += '✅ Removed Flutter command: flutter $removed\n';
+      });
+    }
+  }
+
+  // FIXED: Enhanced method to create patch file with proper Flutter commands integration
   Future<void> createPatchFile() async {
     if (patchEntries.isEmpty) {
       setState(() {
@@ -1060,8 +1278,10 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
 
     setState(() {
       isCreatingPatch = true;
-      result += '\n--- Creating Patch File from GitHub Repository ---\n';
+      result += '\n--- Creating Patch File with Flutter Commands ---\n';
       result += 'Repository: $repoUrl\n';
+      result += 'Patch entries: ${patchEntries.length}\n';
+      result += 'Flutter commands: ${flutterCommands.length}\n';
     });
 
     try {
@@ -1088,6 +1308,10 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
       patchContent.writeln('# Repository: $repoUrl');
       patchContent.writeln('# Created: ${DateTime.now().toIso8601String()}');
       patchContent.writeln('# Entries: ${patchEntries.length}');
+      if (flutterCommands.isNotEmpty) {
+        patchContent.writeln('# Flutter Commands: ${flutterCommands.length}');
+        patchContent.writeln('# Commands: ${flutterCommands.map((cmd) => 'flutter $cmd').join(', ')}');
+      }
       patchContent.writeln('');
 
       for (int i = 0; i < patchEntries.length; i++) {
@@ -1138,12 +1362,13 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
       final patchFile = File(patchFilePath);
       await patchFile.writeAsString(patchContent.toString());
 
-      // Create SavedPatchFile object
+      // FIXED: Create SavedPatchFile object with Flutter commands properly included
       final savedPatch = SavedPatchFile(
         fileName: patchFileName,
         filePath: patchFilePath,
         createdAt: DateTime.now(),
         entriesCount: patchEntries.length,
+        flutterCommands: List<String>.from(flutterCommands), // Create a copy of the commands list
       );
 
       // Save to SharedPreferences using a normalized key
@@ -1161,6 +1386,10 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
         result += '✅ Patch file created successfully from GitHub repository!\n';
         result += 'Location: app_data/patches/${patchFileName}\n';
         result += 'Entries included: ${patchEntries.length}\n';
+        if (flutterCommands.isNotEmpty) {
+          result += 'Flutter commands included: ${flutterCommands.length}\n';
+          result += 'Commands: ${flutterCommands.map((cmd) => 'flutter $cmd').join(', ')}\n';
+        }
         result += 'Saved to SharedPreferences for persistence\n';
         result += 'Source: $repoUrl\n';
         result += 'To apply: git apply app_data/patches/${patchFileName}\n';
@@ -1173,7 +1402,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
       // Show success message
       setState(() {
         result += '💡 Patch entries are preserved for reuse. Use "Clear All" if you want to start fresh.\n';
-        result += '🔄 Patch is safely stored in SharedPreferences and will persist across app restarts.\n';
+        result += '🔄 Patch with Flutter commands is safely stored and will execute automatically when applied.\n';
       });
 
     } catch (e) {
@@ -1194,11 +1423,11 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
   // Check if patch file name already exists
   bool _isPatchNameDuplicate(String patchName) {
     if (patchName.trim().isEmpty) return false;
-    
+
     final normalizedName = patchName.trim().toLowerCase();
-    return savedPatchFiles.any((patch) => 
-      patch.fileName.toLowerCase() == normalizedName ||
-      patch.fileName.toLowerCase() == '$normalizedName.patch'
+    return savedPatchFiles.any((patch) =>
+    patch.fileName.toLowerCase() == normalizedName ||
+        patch.fileName.toLowerCase() == '$normalizedName.patch'
     );
   }
 
@@ -1208,9 +1437,9 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
     final hasValidName = _customPatchNameController.text.trim().isNotEmpty;
     final isNameUnique = !_isPatchNameDuplicate(_customPatchNameController.text.trim());
     final hasRequiredFields = _patchFolderController.text.trim().isNotEmpty ||
-                             _patchFileNameController.text.trim().isNotEmpty ||
-                             _patchFileContentController.text.trim().isNotEmpty;
-    
+        _patchFileNameController.text.trim().isNotEmpty ||
+        _patchFileContentController.text.trim().isNotEmpty;
+
     return hasEntries && hasValidName && isNameUnique && !hasRequiredFields;
   }
 
@@ -1220,8 +1449,9 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
     final hasValidName = _customPatchNameController.text.trim().isNotEmpty;
     final isNameUnique = !_isPatchNameDuplicate(_customPatchNameController.text.trim());
     final hasRequiredFields = _patchFolderController.text.trim().isNotEmpty ||
-                             _patchFileNameController.text.trim().isNotEmpty ||
-                             _patchFileContentController.text.trim().isNotEmpty;
+        _patchFileNameController.text.trim().isNotEmpty ||
+        _patchFileContentController.text.trim().isNotEmpty;
+    final hasFlutterCommands = flutterCommands.isNotEmpty;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1234,7 +1464,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
         _buildValidationItem(
           'Custom patch name provided',
           hasValidName,
-          _customPatchNameController.text.trim().isNotEmpty 
+          _customPatchNameController.text.trim().isNotEmpty
               ? '"${_customPatchNameController.text.trim()}"'
               : 'No name provided',
         ),
@@ -1247,9 +1477,14 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
         _buildValidationItem(
           'No pending form fields',
           !hasRequiredFields,
-          hasRequiredFields 
+          hasRequiredFields
               ? 'Please complete or clear form fields'
               : 'Form fields are clear',
+        ),
+        _buildValidationItem(
+          'Flutter commands (optional)',
+          true, // Always valid since it's optional
+          '${flutterCommands.length} command(s) added',
         ),
       ],
     );
@@ -1310,6 +1545,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
       featureBranches = [];
       savedPatchFiles = [];
       patchEntries = [];
+      flutterCommands = []; // Clear Flutter commands too
       selectedSourceBranches.clear();
       destinationBranch = "main"; // Always reset to "main"
     });
@@ -1395,6 +1631,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
       featureBranches = [];
       savedPatchFiles = [];
       patchEntries = [];
+      flutterCommands = []; // Clear Flutter commands too
       selectedSourceBranches.clear();
       destinationBranch = "main"; // Always reset to "main"
     });
@@ -1555,6 +1792,76 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
       print('Git command failed: $e');
       return 'Error: $e';
     }
+  }
+
+  // Method to run Flutter commands
+  Future<String> runFlutterCommand(String command, String workingDir) async {
+    try {
+      // Find Flutter executable
+      final flutterPath = await findFlutterExecutable();
+      if (flutterPath == null) {
+        return 'Error: Flutter executable not found';
+      }
+
+      // Split the command into arguments
+      final args = command.split(' ').where((arg) => arg.isNotEmpty).toList();
+
+      print('Running Flutter command: $flutterPath ${args.join(' ')}');
+      print('Working directory: $workingDir');
+
+      final result = await Process.run(
+        flutterPath,
+        args,
+        workingDirectory: workingDir,
+        runInShell: true,
+      );
+
+      print('Flutter command exit code: ${result.exitCode}');
+      print('Flutter command stdout: ${result.stdout}');
+      print('Flutter command stderr: ${result.stderr}');
+
+      if (result.exitCode != 0) {
+        return 'Error: ${result.stderr}';
+      }
+
+      return result.stdout.toString();
+    } catch (e) {
+      print('Flutter command failed: $e');
+      return 'Error: $e';
+    }
+  }
+
+  // Find Flutter executable in common locations
+  Future<String?> findFlutterExecutable() async {
+    final possiblePaths = [
+      '/usr/local/bin/flutter',
+      '/opt/homebrew/bin/flutter',
+      '/snap/bin/flutter',
+      'flutter', // Try PATH
+    ];
+
+    for (final path in possiblePaths) {
+      try {
+        final result = await Process.run('which', [path]);
+        if (result.exitCode == 0) {
+          return result.stdout.toString().trim();
+        }
+      } catch (e) {
+        // Continue to next path
+      }
+    }
+
+    // Try using 'which' command directly
+    try {
+      final result = await Process.run('which', ['flutter']);
+      if (result.exitCode == 0) {
+        return result.stdout.toString().trim();
+      }
+    } catch (e) {
+      print('Error finding flutter with which: $e');
+    }
+
+    return null;
   }
 
   Future<void> mergeBranches() async {
@@ -1859,6 +2166,11 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                   'Created: ${patchFile.createdAt.day}/${patchFile.createdAt.month}/${patchFile.createdAt.year}',
                   style: const TextStyle(color: Colors.white38, fontFamily: 'Orbitron', fontSize: 11),
                 ),
+                if (patchFile.flutterCommands.isNotEmpty)
+                  Text(
+                    '${patchFile.flutterCommands.length} Flutter command(s)',
+                    style: const TextStyle(color: Color(0xFF00E5FF), fontFamily: 'Orbitron', fontSize: 11),
+                  ),
               ],
             ),
             trailing: Row(
@@ -1875,6 +2187,77 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                   tooltip: 'Delete Patch',
                 ),
               ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  // UPDATED: Enhanced Flutter commands list with better display of commands
+  Widget _buildFlutterCommandsList() {
+    if (flutterCommands.isEmpty) {
+      return Container(
+        height: 80,
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.18),
+          border: Border.all(color: Colors.white24),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const Center(
+          child: Text(
+            'No Flutter commands added yet',
+            style: TextStyle(
+              color: Colors.white54,
+              fontStyle: FontStyle.italic,
+              fontFamily: 'Orbitron',
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      height: 120,
+      decoration: BoxDecoration(
+        color: Colors.black.withOpacity(0.18),
+        border: Border.all(color: const Color(0xFF00E5FF).withOpacity(0.3)),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: ListView.builder(
+        itemCount: flutterCommands.length,
+        itemBuilder: (context, index) {
+          final command = flutterCommands[index];
+          return ListTile(
+            dense: true,
+            leading: Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: const Color(0xFF00E5FF).withOpacity(0.2),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Text(
+                '${index + 1}',
+                style: const TextStyle(
+                  color: Color(0xFF00E5FF),
+                  fontFamily: 'Orbitron',
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            title: Text(
+              'flutter $command',
+              style: const TextStyle(color: Colors.white, fontFamily: 'Orbitron', fontSize: 14),
+            ),
+            subtitle: Text(
+              'Will execute when patch is applied',
+              style: const TextStyle(color: Colors.white54, fontFamily: 'Orbitron', fontSize: 10),
+            ),
+            trailing: IconButton(
+              icon: const Icon(Icons.delete, color: Colors.red, size: 18),
+              onPressed: () => _removeFlutterCommand(index),
+              tooltip: 'Remove Command',
             ),
           );
         },
@@ -2081,7 +2464,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                             ],
                           ),
                           const SizedBox(height: 16),
-                          
+
                           // Custom Patch Name Input
                           TextField(
                             controller: _customPatchNameController,
@@ -2097,24 +2480,24 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                               ),
                               suffixIcon: _customPatchNameController.text.trim().isNotEmpty
                                   ? Icon(
-                                      _isPatchNameDuplicate(_customPatchNameController.text.trim())
-                                          ? Icons.error
-                                          : Icons.check_circle,
-                                      color: _isPatchNameDuplicate(_customPatchNameController.text.trim())
-                                          ? Colors.red
-                                          : const Color(0xFF4CAF50),
-                                    )
+                                _isPatchNameDuplicate(_customPatchNameController.text.trim())
+                                    ? Icons.error
+                                    : Icons.check_circle,
+                                color: _isPatchNameDuplicate(_customPatchNameController.text.trim())
+                                    ? Colors.red
+                                    : const Color(0xFF4CAF50),
+                              )
                                   : null,
                               helperText: _customPatchNameController.text.trim().isNotEmpty
                                   ? _isPatchNameDuplicate(_customPatchNameController.text.trim())
-                                      ? '❌ This name already exists'
-                                      : '✅ Name is available'
+                                  ? '❌ This name already exists'
+                                  : '✅ Name is available'
                                   : null,
                               helperStyle: TextStyle(
                                 color: _customPatchNameController.text.trim().isNotEmpty
                                     ? _isPatchNameDuplicate(_customPatchNameController.text.trim())
-                                        ? Colors.red
-                                        : const Color(0xFF4CAF50)
+                                    ? Colors.red
+                                    : const Color(0xFF4CAF50)
                                     : Colors.white54,
                                 fontSize: 12,
                                 fontFamily: 'Orbitron',
@@ -2127,7 +2510,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                             },
                           ),
                           const SizedBox(height: 16),
-                          
+
                           // Patch entry form
                           Row(
                             children: [
@@ -2220,13 +2603,13 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                                     style: const TextStyle(color: Colors.black, fontFamily: 'Orbitron'),
                                   ),
                                   style: ElevatedButton.styleFrom(
-                                    backgroundColor: _isPatchFormValid() 
-                                        ? const Color(0xFF4CAF50) 
+                                    backgroundColor: _isPatchFormValid()
+                                        ? const Color(0xFF4CAF50)
                                         : Colors.grey,
                                     foregroundColor: Colors.black,
                                     elevation: _isPatchFormValid() ? 10 : 0,
-                                    shadowColor: _isPatchFormValid() 
-                                        ? const Color(0xFF4CAF50) 
+                                    shadowColor: _isPatchFormValid()
+                                        ? const Color(0xFF4CAF50)
                                         : Colors.transparent,
                                   ),
                                 ),
@@ -2239,8 +2622,9 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                                     }
                                     setState(() {
                                       patchEntries.clear();
+                                      flutterCommands.clear(); // Clear Flutter commands too
                                       _customPatchNameController.clear();
-                                      result += '✅ Cleared all patch entries and custom name from persistent storage.\n';
+                                      result += '✅ Cleared all patch entries, Flutter commands, and custom name from persistent storage.\n';
                                     });
                                   },
                                   icon: const Icon(Icons.clear_all, color: Colors.black),
@@ -2262,6 +2646,13 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                                     await PatchPreferencesHelper.debugPrintAllData();
                                     setState(() {
                                       result += '🔍 Debug data printed to console. Check logs.\n';
+                                      result += '📋 Current saved patches:\n';
+                                      for (final patch in savedPatchFiles) {
+                                        result += '  - ${patch.fileName}: ${patch.flutterCommands.length} Flutter commands\n';
+                                        if (patch.flutterCommands.isNotEmpty) {
+                                          result += '    Commands: ${patch.flutterCommands.map((cmd) => 'flutter $cmd').join(', ')}\n';
+                                        }
+                                      }
                                     });
                                   },
                                   icon: const Icon(Icons.bug_report, color: Colors.black, size: 16),
@@ -2277,6 +2668,25 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                                     minimumSize: const Size(80, 36),
                                   ),
                                 ),
+                                const SizedBox(width: 8),
+                                // Refresh patches button
+                                ElevatedButton.icon(
+                                  onPressed: () async {
+                                    await refreshSavedPatches();
+                                  },
+                                  icon: const Icon(Icons.refresh, color: Colors.black, size: 16),
+                                  label: const Text(
+                                    'Refresh',
+                                    style: TextStyle(color: Colors.black, fontFamily: 'Orbitron', fontSize: 12),
+                                  ),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF2196F3),
+                                    foregroundColor: Colors.black,
+                                    elevation: 8,
+                                    shadowColor: const Color(0xFF2196F3),
+                                    minimumSize: const Size(80, 36),
+                                  ),
+                                ),
                               ],
                             ],
                           ),
@@ -2289,8 +2699,8 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                               decoration: BoxDecoration(
                                 color: Colors.black.withOpacity(0.2),
                                 border: Border.all(
-                                  color: _isPatchFormValid() 
-                                      ? const Color(0xFF4CAF50) 
+                                  color: _isPatchFormValid()
+                                      ? const Color(0xFF4CAF50)
                                       : const Color(0xFFFF6B35),
                                   width: 1,
                                 ),
@@ -2303,8 +2713,8 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                                     children: [
                                       Icon(
                                         _isPatchFormValid() ? Icons.check_circle : Icons.info,
-                                        color: _isPatchFormValid() 
-                                            ? const Color(0xFF4CAF50) 
+                                        color: _isPatchFormValid()
+                                            ? const Color(0xFF4CAF50)
                                             : const Color(0xFFFF6B35),
                                         size: 16,
                                       ),
@@ -2312,8 +2722,8 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                                       Text(
                                         'Validation Status',
                                         style: TextStyle(
-                                          color: _isPatchFormValid() 
-                                              ? const Color(0xFF4CAF50) 
+                                          color: _isPatchFormValid()
+                                              ? const Color(0xFF4CAF50)
                                               : const Color(0xFFFF6B35),
                                           fontWeight: FontWeight.bold,
                                           fontFamily: 'Orbitron',
@@ -2367,10 +2777,147 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                           ),
                           const SizedBox(height: 8),
                           _buildPatchEntriesList(),
+                          const SizedBox(height: 20),
+
+                          // Flutter Commands Section
+                          Row(
+                            children: [
+                              const Icon(Icons.play_circle_outline, color: Color(0xFF00E5FF), size: 20),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Flutter Commands (${flutterCommands.length})',
+                                style: const TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF00E5FF),
+                                  fontFamily: 'Orbitron',
+                                ),
+                              ),
+                              const Spacer(),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF00E5FF).withOpacity(0.2),
+                                  border: Border.all(color: const Color(0xFF00E5FF), width: 1),
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: const Text(
+                                  'Auto-execute',
+                                  style: TextStyle(
+                                    color: Color(0xFF00E5FF),
+                                    fontFamily: 'Orbitron',
+                                    fontSize: 8,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+
+                          // Flutter Command Input
+                          Row(
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  controller: _flutterCommandController,
+                                  style: const TextStyle(color: Colors.white, fontFamily: 'Orbitron'),
+                                  decoration: const InputDecoration(
+                                    labelText: 'Flutter Command',
+                                    labelStyle: TextStyle(color: Color(0xFF00E5FF)),
+                                    hintText: 'e.g., pub get, build apk, run',
+                                    hintStyle: TextStyle(color: Colors.white38),
+                                    border: OutlineInputBorder(),
+                                    focusedBorder: OutlineInputBorder(
+                                      borderSide: BorderSide(color: Color(0xFF00E5FF), width: 2),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              ElevatedButton.icon(
+                                onPressed: _addFlutterCommand,
+                                icon: const Icon(Icons.add, color: Colors.black),
+                                label: const Text(
+                                  'Add Command',
+                                  style: TextStyle(color: Colors.black, fontFamily: 'Orbitron'),
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF00E5FF),
+                                  foregroundColor: Colors.black,
+                                  elevation: 10,
+                                  shadowColor: const Color(0xFF00E5FF),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+
+                          // Common Flutter Commands Suggestions
+                          if (flutterCommands.isEmpty) ...[
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: Colors.black.withOpacity(0.1),
+                                border: Border.all(color: const Color(0xFF00E5FF).withOpacity(0.3)),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      const Icon(Icons.lightbulb_outline, color: Color(0xFF00E5FF), size: 16),
+                                      const SizedBox(width: 8),
+                                      const Text(
+                                        'Common Flutter Commands',
+                                        style: TextStyle(
+                                          color: Color(0xFF00E5FF),
+                                          fontWeight: FontWeight.bold,
+                                          fontFamily: 'Orbitron',
+                                          fontSize: 12,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 4,
+                                    children: getCommonFlutterCommands().map((command) {
+                                      return InkWell(
+                                        onTap: () => _addCommonFlutterCommand(command),
+                                        child: Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                          decoration: BoxDecoration(
+                                            color: const Color(0xFF00E5FF).withOpacity(0.2),
+                                            border: Border.all(color: const Color(0xFF00E5FF).withOpacity(0.5)),
+                                            borderRadius: BorderRadius.circular(12),
+                                          ),
+                                          child: Text(
+                                            command,
+                                            style: const TextStyle(
+                                              color: Color(0xFF00E5FF),
+                                              fontSize: 10,
+                                              fontFamily: 'Orbitron',
+                                            ),
+                                          ),
+                                        ),
+                                      );
+                                    }).toList(),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                          ],
+
+                          // Flutter Commands List
+                          _buildFlutterCommandsList(),
                         ],
                       ),
                     ),
-                    const SizedBox(height: 28),
+                  const SizedBox(height: 28),
 
                   if (folderPath != null && !isCloning) ...[
                     // Merge Section
@@ -2501,7 +3048,33 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                               ),
                             ],
                           ),
-                          const SizedBox(height: 16),
+                          const SizedBox(height: 8),
+                          // Info about Flutter commands
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF00E5FF).withOpacity(0.1),
+                              border: Border.all(color: const Color(0xFF00E5FF).withOpacity(0.3)),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.info_outline, color: Color(0xFF00E5FF), size: 16),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    '💡 Patches with Flutter commands will automatically execute them when applied. Use the Refresh button if commands are not showing.',
+                                    style: const TextStyle(
+                                      color: Color(0xFF00E5FF),
+                                      fontSize: 12,
+                                      fontFamily: 'Orbitron',
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 12),
                           _buildSavedPatchFilesList(),
                         ],
                       ),
@@ -2573,5 +3146,31 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
         ),
       ),
     );
+  }
+
+  // Helper method to get common Flutter command suggestions
+  List<String> getCommonFlutterCommands() {
+    return [
+      'pub get',
+      'pub upgrade',
+      'clean',
+      'build apk',
+      'build ios',
+      'build web',
+      'run',
+      'test',
+      'analyze',
+      'format .',
+      'pub outdated',
+      'doctor',
+    ];
+  }
+
+  // Method to add a common Flutter command
+  void _addCommonFlutterCommand(String command) {
+    setState(() {
+      flutterCommands.add(command);
+      result += '✅ Added common Flutter command: flutter $command\n';
+    });
   }
 }
