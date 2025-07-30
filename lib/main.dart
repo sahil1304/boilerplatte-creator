@@ -682,15 +682,19 @@ class RepoReaderScreen extends StatefulWidget {
   State<RepoReaderScreen> createState() => _RepoReaderScreenState();
 }
 
-class _RepoReaderScreenState extends State<RepoReaderScreen> {
+class _RepoReaderScreenState extends State<RepoReaderScreen> with TickerProviderStateMixin {
   String? folderPath;
   String result = '';
   bool isCloning = false;
   bool isLoading = false;
   bool isCreatingPatch = false;
   double mergeProgress = 0.0; // Progress for merge operation
-  // Add a state variable to control the visibility of the Create Patch File panel
-  bool showCreatePatchPanel = false;
+  
+  // Tab controller for the main interface
+  late TabController _tabController;
+  
+  // Remove the boolean flag since we're using tabs now
+  // bool showCreatePatchPanel = false;
 
   // Database helper instance
   final PatchDatabaseHelper _dbHelper = PatchDatabaseHelper();
@@ -732,6 +736,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
   @override
   void initState() {
     super.initState();
+    _tabController = TabController(length: 3, vsync: this);
     _initializeApp();
   }
 
@@ -790,6 +795,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
 
   @override
   void dispose() {
+    _tabController.dispose();
     _folderNameController.dispose();
     _patchFolderController.dispose();
     _patchFileNameController.dispose();
@@ -2341,746 +2347,108 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
                   const SizedBox(height: 24),
 
                   // Clone Section
+                  // FuturisticGlassPanel(
+                  //   child: Column(
+                  //     crossAxisAlignment: CrossAxisAlignment.start,
+                  //     children: [
+                  //       const Text('Create Flutter project', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFFB388FF), fontFamily: 'Orbitron', letterSpacing: 1.1)),
+                  //       const SizedBox(height: 12),
+                  //       TextField(
+                  //         controller: _folderNameController,
+                  //         style: const TextStyle(color: Colors.white, fontFamily: 'Orbitron'),
+                  //         decoration: const InputDecoration(
+                  //           labelText: 'Folder Name (optional)',
+                  //           labelStyle: TextStyle(color: Color(0xFFB388FF)),
+                  //           border: OutlineInputBorder(),
+                  //         ),
+                  //       ),
+                  //       const SizedBox(height: 12),
+                  //       Row(
+                  //         children: [
+                  //           ElevatedButton.icon(
+                  //             onPressed: isCloning ? null : cloneRepository,
+                  //             icon: isCloning
+                  //                 ? const SizedBox(
+                  //               width: 18,
+                  //               height: 18,
+                  //               child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFB388FF)),
+                  //             )
+                  //                 : const Icon(Icons.cloud_download, color: Colors.black),
+                  //             label: Text(isCloning ? 'Creating Project...' : 'Create Project', style: const TextStyle(color: Colors.black, fontFamily: 'Orbitron')),
+                  //             style: ElevatedButton.styleFrom(
+                  //               backgroundColor: const Color(0xFFB388FF),
+                  //               foregroundColor: Colors.black,
+                  //               elevation: 10,
+                  //               shadowColor: const Color(0xFFB388FF),
+                  //             ),
+                  //           ),
+                  //           const SizedBox(width: 12),
+                  //           ElevatedButton.icon(
+                  //             onPressed: pickFolderAndReadRepo,
+                  //             icon: const Icon(Icons.folder_open, color: Colors.black),
+                  //             label: const Text('Select Existing Project', style: TextStyle(color: Colors.black, fontFamily: 'Orbitron')),
+                  //             style: ElevatedButton.styleFrom(
+                  //               backgroundColor: const Color(0xFF00E5FF),
+                  //               foregroundColor: Colors.black,
+                  //               elevation: 10,
+                  //               shadowColor: const Color(0xFF00E5FF),
+                  //             ),
+                  //           ),
+                  //         ],
+                  //       ),
+                  //     ],
+                  //   ),
+                  // ),
+                  // const SizedBox(height: 28),
+
+                  // Tab Bar for main interface
                   FuturisticGlassPanel(
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('Create Flutter project', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFFB388FF), fontFamily: 'Orbitron', letterSpacing: 1.1)),
-                        const SizedBox(height: 12),
-                        TextField(
-                          controller: _folderNameController,
-                          style: const TextStyle(color: Colors.white, fontFamily: 'Orbitron'),
-                          decoration: const InputDecoration(
-                            labelText: 'Folder Name (optional)',
-                            labelStyle: TextStyle(color: Color(0xFFB388FF)),
-                            border: OutlineInputBorder(),
+                        TabBar(
+                          controller: _tabController,
+                          labelColor: Colors.white,
+                          unselectedLabelColor: Colors.white54,
+                          indicatorColor: const Color(0xFFB388FF),
+                          indicatorWeight: 3,
+                          labelStyle: const TextStyle(
+                            fontFamily: 'Orbitron',
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
                           ),
-                        ),
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            ElevatedButton.icon(
-                              onPressed: isCloning ? null : cloneRepository,
-                              icon: isCloning
-                                  ? const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFB388FF)),
-                              )
-                                  : const Icon(Icons.cloud_download, color: Colors.black),
-                              label: Text(isCloning ? 'Creating Project...' : 'Create Project', style: const TextStyle(color: Colors.black, fontFamily: 'Orbitron')),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFFB388FF),
-                                foregroundColor: Colors.black,
-                                elevation: 10,
-                                shadowColor: const Color(0xFFB388FF),
-                              ),
+                          tabs: const [
+                            Tab(
+                              icon: Icon(Icons.folder_open),
+                              text: 'Project',
                             ),
-                            const SizedBox(width: 12),
-                            ElevatedButton.icon(
-                              onPressed: pickFolderAndReadRepo,
-                              icon: const Icon(Icons.folder_open, color: Colors.black),
-                              label: const Text('Select Existing Project', style: TextStyle(color: Colors.black, fontFamily: 'Orbitron')),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF00E5FF),
-                                foregroundColor: Colors.black,
-                                elevation: 10,
-                                shadowColor: const Color(0xFF00E5FF),
-                              ),
+                            Tab(
+                              icon: Icon(Icons.build_circle),
+                              text: 'Custom Feature',
+                            ),
+                            Tab(
+                              icon: Icon(Icons.merge_type),
+                              text: 'Merge & Patches',
                             ),
                           ],
+                        ),
+                        const SizedBox(height: 20),
+                        SizedBox(
+                          height: 600, // Fixed height for tab content
+                          child: TabBarView(
+                            controller: _tabController,
+                            children: [
+                              // Tab 1: Project Management
+                              _buildProjectTab(),
+                              // Tab 2: Custom Feature Creator
+                              _buildCustomFeatureTab(),
+                              // Tab 3: Merge and Patches
+                              _buildMergeAndPatchesTab(),
+                            ],
+                          ),
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 28),
-
-                  // Add the Create Custom Feature button
-                  Center(
-                    child: ElevatedButton.icon(
-                      onPressed: () {
-                        setState(() {
-                          showCreatePatchPanel = !showCreatePatchPanel;
-                        });
-                      },
-                      icon: const Icon(Icons.add_circle_outline, color: Colors.black),
-                      label: Text(
-                        showCreatePatchPanel ? 'Hide Custom Feature Creator' : 'Create Custom Feature',
-                        style: const TextStyle(color: Colors.black, fontFamily: 'Orbitron'),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFFF6B35),
-                        foregroundColor: Colors.black,
-                        elevation: 10,
-                        shadowColor: const Color(0xFFFF6B35),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-
-                  // Show the Create Patch File panel only if showCreatePatchPanel is true
-                  if (showCreatePatchPanel)
-                    FuturisticGlassPanel(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              const Icon(Icons.build_circle, color: Color(0xFFFF6B35), size: 24),
-                              const SizedBox(width: 10),
-                              const Text(
-                                'Create Patch File',
-                                style: TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFFFF6B35),
-                                  fontFamily: 'Orbitron',
-                                  letterSpacing: 1.1,
-                                ),
-                              ),
-                              const Spacer(),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF4CAF50),
-                                  borderRadius: BorderRadius.circular(6),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: const Color(0xFF4CAF50).withOpacity(0.3),
-                                      blurRadius: 4,
-                                    ),
-                                  ],
-                                ),
-                                child: const Text(
-                                  'AUTO-SAVE',
-                                  style: TextStyle(
-                                    color: Colors.black,
-                                    fontWeight: FontWeight.bold,
-                                    fontFamily: 'Orbitron',
-                                    fontSize: 8,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 16),
-
-                          // Custom Patch Name Input
-                          TextField(
-                            controller: _customPatchNameController,
-                            style: const TextStyle(color: Colors.white, fontFamily: 'Orbitron'),
-                            decoration: InputDecoration(
-                              labelText: 'Custom Patch File Name',
-                              labelStyle: const TextStyle(color: Color(0xFFFF6B35)),
-                              hintText: 'e.g., my_custom_feature',
-                              hintStyle: const TextStyle(color: Colors.white38),
-                              border: const OutlineInputBorder(),
-                              focusedBorder: const OutlineInputBorder(
-                                borderSide: BorderSide(color: Color(0xFFFF6B35), width: 2),
-                              ),
-                              suffixIcon: _customPatchNameController.text.trim().isNotEmpty
-                                  ? Icon(
-                                _isPatchNameDuplicate(_customPatchNameController.text.trim())
-                                    ? Icons.error
-                                    : Icons.check_circle,
-                                color: _isPatchNameDuplicate(_customPatchNameController.text.trim())
-                                    ? Colors.red
-                                    : const Color(0xFF4CAF50),
-                              )
-                                  : null,
-                              helperText: _customPatchNameController.text.trim().isNotEmpty
-                                  ? _isPatchNameDuplicate(_customPatchNameController.text.trim())
-                                  ? '❌ This name already exists'
-                                  : '✅ Name is available'
-                                  : null,
-                              helperStyle: TextStyle(
-                                color: _customPatchNameController.text.trim().isNotEmpty
-                                    ? _isPatchNameDuplicate(_customPatchNameController.text.trim())
-                                    ? Colors.red
-                                    : const Color(0xFF4CAF50)
-                                    : Colors.white54,
-                                fontSize: 12,
-                                fontFamily: 'Orbitron',
-                              ),
-                            ),
-                            onChanged: (value) {
-                              setState(() {
-                                // Trigger rebuild to update validation UI
-                              });
-                            },
-                          ),
-                          const SizedBox(height: 16),
-
-                          // Patch entry form
-                          Row(
-                            children: [
-                              Expanded(
-                                flex: 2,
-                                child: TextField(
-                                  controller: _patchFolderController,
-                                  style: const TextStyle(color: Colors.white, fontFamily: 'Orbitron'),
-                                  decoration: const InputDecoration(
-                                    labelText: 'Folder Name',
-                                    labelStyle: TextStyle(color: Color(0xFFFF6B35)),
-                                    hintText: 'e.g., lib/widgets',
-                                    hintStyle: TextStyle(color: Colors.white38),
-                                    border: OutlineInputBorder(),
-                                    focusedBorder: OutlineInputBorder(
-                                      borderSide: BorderSide(color: Color(0xFFFF6B35), width: 2),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                flex: 2,
-                                child: TextField(
-                                  controller: _patchFileNameController,
-                                  style: const TextStyle(color: Colors.white, fontFamily: 'Orbitron'),
-                                  decoration: const InputDecoration(
-                                    labelText: 'File Name',
-                                    labelStyle: TextStyle(color: Color(0xFFFF6B35)),
-                                    hintText: 'e.g., custom_widget.dart',
-                                    hintStyle: TextStyle(color: Colors.white38),
-                                    border: OutlineInputBorder(),
-                                    focusedBorder: OutlineInputBorder(
-                                      borderSide: BorderSide(color: Color(0xFFFF6B35), width: 2),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-
-                          TextField(
-                            controller: _patchFileContentController,
-                            style: const TextStyle(color: Colors.white, fontFamily: 'FiraMono', fontSize: 13),
-                            maxLines: 8,
-                            decoration: const InputDecoration(
-                              labelText: 'File Content',
-                              labelStyle: TextStyle(color: Color(0xFFFF6B35)),
-                              hintText: 'Enter your code here...',
-                              hintStyle: TextStyle(color: Colors.white38),
-                              border: OutlineInputBorder(),
-                              focusedBorder: OutlineInputBorder(
-                                borderSide: BorderSide(color: Color(0xFFFF6B35), width: 2),
-                              ),
-                              alignLabelWithHint: true,
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-
-                          Row(
-                            children: [
-                              ElevatedButton.icon(
-                                onPressed: _addPatchEntry,
-                                icon: const Icon(Icons.add, color: Colors.black),
-                                label: const Text(
-                                  'Add Entry',
-                                  style: TextStyle(color: Colors.black, fontFamily: 'Orbitron'),
-                                ),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFFFF6B35),
-                                  foregroundColor: Colors.black,
-                                  elevation: 10,
-                                  shadowColor: const Color(0xFFFF6B35),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              if (patchEntries.isNotEmpty) ...[
-                                ElevatedButton.icon(
-                                  onPressed: (isCreatingPatch || !_isPatchFormValid()) ? null : createPatchFile,
-                                  icon: isCreatingPatch
-                                      ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
-                                  )
-                                      : const Icon(Icons.file_download, color: Colors.black),
-                                  label: Text(
-                                    isCreatingPatch ? 'Creating...' : 'Create Patch',
-                                    style: const TextStyle(color: Colors.black, fontFamily: 'Orbitron'),
-                                  ),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: _isPatchFormValid()
-                                        ? const Color(0xFF4CAF50)
-                                        : Colors.grey,
-                                    foregroundColor: Colors.black,
-                                    elevation: _isPatchFormValid() ? 10 : 0,
-                                    shadowColor: _isPatchFormValid()
-                                        ? const Color(0xFF4CAF50)
-                                        : Colors.transparent,
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                ElevatedButton.icon(
-                                  onPressed: () async {
-                                    // Clear from SharedPreferences but keep for potential reuse
-                                    if (folderPath != null) {
-                                      await PatchPreferencesHelper.clearPatchEntries(folderPath!);
-                                    }
-                                    setState(() {
-                                      patchEntries.clear();
-                                      flutterCommands.clear(); // Clear Flutter commands too
-                                      _customPatchNameController.clear();
-                                      result += '✅ Cleared all patch entries, Flutter commands, and custom name from persistent storage.\n';
-                                    });
-                                  },
-                                  icon: const Icon(Icons.clear_all, color: Colors.black),
-                                  label: const Text(
-                                    'Clear All',
-                                    style: TextStyle(color: Colors.black, fontFamily: 'Orbitron'),
-                                  ),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFFF44336),
-                                    foregroundColor: Colors.black,
-                                    elevation: 10,
-                                    shadowColor: const Color(0xFFF44336),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                // Debug button to show all stored data
-                                ElevatedButton.icon(
-                                  onPressed: () async {
-                                    await PatchPreferencesHelper.debugPrintAllData();
-                                    setState(() {
-                                      result += '🔍 Debug data printed to console. Check logs.\n';
-                                      result += '📋 Current saved patches:\n';
-                                      for (final patch in savedPatchFiles) {
-                                        result += '  - ${patch.fileName}: ${patch.flutterCommands.length} Flutter commands\n';
-                                        if (patch.flutterCommands.isNotEmpty) {
-                                          result += '    Commands: ${patch.flutterCommands.map((cmd) => 'flutter $cmd').join(', ')}\n';
-                                        }
-                                      }
-                                    });
-                                  },
-                                  icon: const Icon(Icons.bug_report, color: Colors.black, size: 16),
-                                  label: const Text(
-                                    'Debug',
-                                    style: TextStyle(color: Colors.black, fontFamily: 'Orbitron', fontSize: 12),
-                                  ),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFFFFEB3B),
-                                    foregroundColor: Colors.black,
-                                    elevation: 8,
-                                    shadowColor: const Color(0xFFFFEB3B),
-                                    minimumSize: const Size(80, 36),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                // Refresh patches button
-                                ElevatedButton.icon(
-                                  onPressed: () async {
-                                    await refreshSavedPatches();
-                                  },
-                                  icon: const Icon(Icons.refresh, color: Colors.black, size: 16),
-                                  label: const Text(
-                                    'Refresh',
-                                    style: TextStyle(color: Colors.black, fontFamily: 'Orbitron', fontSize: 12),
-                                  ),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFF2196F3),
-                                    foregroundColor: Colors.black,
-                                    elevation: 8,
-                                    shadowColor: const Color(0xFF2196F3),
-                                    minimumSize: const Size(80, 36),
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                          const SizedBox(height: 16),
-
-                          // Validation Status
-                          if (patchEntries.isNotEmpty) ...[
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: Colors.black.withOpacity(0.2),
-                                border: Border.all(
-                                  color: _isPatchFormValid()
-                                      ? const Color(0xFF4CAF50)
-                                      : const Color(0xFFFF6B35),
-                                  width: 1,
-                                ),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Icon(
-                                        _isPatchFormValid() ? Icons.check_circle : Icons.info,
-                                        color: _isPatchFormValid()
-                                            ? const Color(0xFF4CAF50)
-                                            : const Color(0xFFFF6B35),
-                                        size: 16,
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        'Validation Status',
-                                        style: TextStyle(
-                                          color: _isPatchFormValid()
-                                              ? const Color(0xFF4CAF50)
-                                              : const Color(0xFFFF6B35),
-                                          fontWeight: FontWeight.bold,
-                                          fontFamily: 'Orbitron',
-                                          fontSize: 14,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 8),
-                                  _buildValidationStatus(),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                          ],
-
-                          // Display current patch entries
-                          Row(
-                            children: [
-                              const Icon(Icons.list_alt, color: Color(0xFFFF6B35), size: 20),
-                              const SizedBox(width: 8),
-                              Text(
-                                'Patch Entries (${patchEntries.length})',
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFFFF6B35),
-                                  fontFamily: 'Orbitron',
-                                ),
-                              ),
-                              const Spacer(),
-                              if (folderPath != null)
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFF4CAF50).withOpacity(0.2),
-                                    border: Border.all(color: const Color(0xFF4CAF50), width: 1),
-                                    borderRadius: BorderRadius.circular(6),
-                                  ),
-                                  child: const Text(
-                                    'Auto-saved & Persistent',
-                                    style: TextStyle(
-                                      color: Color(0xFF4CAF50),
-                                      fontFamily: 'Orbitron',
-                                      fontSize: 8,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          _buildPatchEntriesList(),
-                          const SizedBox(height: 20),
-
-                          // Flutter Commands Section
-                          Row(
-                            children: [
-                              const Icon(Icons.play_circle_outline, color: Color(0xFF00E5FF), size: 20),
-                              const SizedBox(width: 8),
-                              Text(
-                                'Flutter Commands (${flutterCommands.length})',
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFF00E5FF),
-                                  fontFamily: 'Orbitron',
-                                ),
-                              ),
-                              const Spacer(),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF00E5FF).withOpacity(0.2),
-                                  border: Border.all(color: const Color(0xFF00E5FF), width: 1),
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: const Text(
-                                  'Auto-execute',
-                                  style: TextStyle(
-                                    color: Color(0xFF00E5FF),
-                                    fontFamily: 'Orbitron',
-                                    fontSize: 8,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-
-                          // Flutter Command Input
-                          Row(
-                            children: [
-                              Expanded(
-                                child: TextField(
-                                  controller: _flutterCommandController,
-                                  style: const TextStyle(color: Colors.white, fontFamily: 'Orbitron'),
-                                  decoration: const InputDecoration(
-                                    labelText: 'Flutter Command',
-                                    labelStyle: TextStyle(color: Color(0xFF00E5FF)),
-                                    hintText: 'e.g., pub get, build apk, run',
-                                    hintStyle: TextStyle(color: Colors.white38),
-                                    border: OutlineInputBorder(),
-                                    focusedBorder: OutlineInputBorder(
-                                      borderSide: BorderSide(color: Color(0xFF00E5FF), width: 2),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              ElevatedButton.icon(
-                                onPressed: _addFlutterCommand,
-                                icon: const Icon(Icons.add, color: Colors.black),
-                                label: const Text(
-                                  'Add Command',
-                                  style: TextStyle(color: Colors.black, fontFamily: 'Orbitron'),
-                                ),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF00E5FF),
-                                  foregroundColor: Colors.black,
-                                  elevation: 10,
-                                  shadowColor: const Color(0xFF00E5FF),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-
-                          // Common Flutter Commands Suggestions
-                          if (flutterCommands.isEmpty) ...[
-                            Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: Colors.black.withOpacity(0.1),
-                                border: Border.all(color: const Color(0xFF00E5FF).withOpacity(0.3)),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      const Icon(Icons.lightbulb_outline, color: Color(0xFF00E5FF), size: 16),
-                                      const SizedBox(width: 8),
-                                      const Text(
-                                        'Common Flutter Commands',
-                                        style: TextStyle(
-                                          color: Color(0xFF00E5FF),
-                                          fontWeight: FontWeight.bold,
-                                          fontFamily: 'Orbitron',
-                                          fontSize: 12,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Wrap(
-                                    spacing: 8,
-                                    runSpacing: 4,
-                                    children: getCommonFlutterCommands().map((command) {
-                                      return InkWell(
-                                        onTap: () => _addCommonFlutterCommand(command),
-                                        child: Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                          decoration: BoxDecoration(
-                                            color: const Color(0xFF00E5FF).withOpacity(0.2),
-                                            border: Border.all(color: const Color(0xFF00E5FF).withOpacity(0.5)),
-                                            borderRadius: BorderRadius.circular(12),
-                                          ),
-                                          child: Text(
-                                            command,
-                                            style: const TextStyle(
-                                              color: Color(0xFF00E5FF),
-                                              fontSize: 10,
-                                              fontFamily: 'Orbitron',
-                                            ),
-                                          ),
-                                        ),
-                                      );
-                                    }).toList(),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                          ],
-
-                          // Flutter Commands List
-                          _buildFlutterCommandsList(),
-                        ],
-                      ),
-                    ),
-                  const SizedBox(height: 28),
-
-                  if (folderPath != null && !isCloning) ...[
-                    // Merge Section
-                    FuturisticGlassPanel(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          if (isLoading && mergeProgress > 0.0) ...[
-                            Center(
-                              child: Column(
-                                children: [
-                                  SizedBox(
-                                    width: 260,
-                                    child: LinearProgressIndicator(
-                                      value: mergeProgress,
-                                      minHeight: 10,
-                                      backgroundColor: Colors.white24,
-                                      valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFB388FF)),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Text(
-                                    '${(mergeProgress * 100).toInt()}% ${mergeProgress < 1.0 ? 'completing' : 'completed'}',
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontFamily: 'Orbitron',
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 16,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 20),
-                          ] else if (isLoading) ...[
-                            const Center(child: CircularProgressIndicator()),
-                            const SizedBox(height: 20),
-                          ] else ...[
-                            _buildBranchSection('List of widgets', widgetBranches, const Color(0xFF7C4DFF)),
-                            _buildBranchSection('List of features', featureBranches, const Color(0xFF00E5FF)),
-                            const SizedBox(height: 18),
-                            Row(
-                              children: [
-                                ElevatedButton.icon(
-                                  onPressed: (selectedSourceBranches.isEmpty || isLoading)
-                                      ? null
-                                      : mergeBranches,
-                                  icon: isLoading
-                                      ? const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFB388FF)),
-                                  )
-                                      : const Icon(Icons.merge_type, color: Colors.black),
-                                  label: const Text('Apply in project', style: TextStyle(color: Colors.black, fontFamily: 'Orbitron')),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFFB388FF),
-                                    foregroundColor: Colors.black,
-                                    elevation: 10,
-                                    shadowColor: const Color(0xFFB388FF),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                ElevatedButton.icon(
-                                  onPressed: () {
-                                    setState(() {
-                                      selectedSourceBranches.clear();
-                                    });
-                                  },
-                                  icon: const Icon(Icons.clear, color: Colors.black),
-                                  label: const Text('Clear Selection', style: TextStyle(color: Colors.black, fontFamily: 'Orbitron')),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFF00E5FF),
-                                    foregroundColor: Colors.black,
-                                    elevation: 10,
-                                    shadowColor: const Color(0xFF00E5FF),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 28),
-
-                    // Saved Patch Files Section
-                    FuturisticGlassPanel(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              const Icon(Icons.file_present, color: Color(0xFF4CAF50), size: 24),
-                              const SizedBox(width: 10),
-                              const Text(
-                                'Saved Patch Files',
-                                style: TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFF4CAF50),
-                                  fontFamily: 'Orbitron',
-                                  letterSpacing: 1.1,
-                                ),
-                              ),
-                              const Spacer(),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF4CAF50),
-                                  borderRadius: BorderRadius.circular(6),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: const Color(0xFF4CAF50).withOpacity(0.3),
-                                      blurRadius: 4,
-                                    ),
-                                  ],
-                                ),
-                                child: Text(
-                                  '${savedPatchFiles.length} FILES',
-                                  style: const TextStyle(
-                                    color: Colors.black,
-                                    fontWeight: FontWeight.bold,
-                                    fontFamily: 'Orbitron',
-                                    fontSize: 8,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          // Info about Flutter commands
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF00E5FF).withOpacity(0.1),
-                              border: Border.all(color: const Color(0xFF00E5FF).withOpacity(0.3)),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Row(
-                              children: [
-                                const Icon(Icons.info_outline, color: Color(0xFF00E5FF), size: 16),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    '💡 Patches with Flutter commands will automatically execute them when applied. Use the Refresh button if commands are not showing.',
-                                    style: const TextStyle(
-                                      color: Color(0xFF00E5FF),
-                                      fontSize: 12,
-                                      fontFamily: 'Orbitron',
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          _buildSavedPatchFilesList(),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 28),
-                  ],
 
                   // Result output section
                   if (result.isNotEmpty) ...[
@@ -3172,5 +2540,740 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> {
       flutterCommands.add(command);
       result += '✅ Added common Flutter command: flutter $command\n';
     });
+  }
+
+  // Tab 1: Project Management
+  Widget _buildProjectTab() {
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Project Management',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFFB388FF),
+              fontFamily: 'Orbitron',
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _folderNameController,
+            style: const TextStyle(color: Colors.white, fontFamily: 'Orbitron'),
+            decoration: const InputDecoration(
+              labelText: 'Folder Name (optional)',
+              labelStyle: TextStyle(color: Color(0xFFB388FF)),
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              ElevatedButton.icon(
+                onPressed: isCloning ? null : cloneRepository,
+                icon: isCloning
+                    ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFB388FF)),
+                )
+                    : const Icon(Icons.cloud_download, color: Colors.black),
+                label: Text(isCloning ? 'Creating Project...' : 'Create Project', style: const TextStyle(color: Colors.black, fontFamily: 'Orbitron')),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFB388FF),
+                  foregroundColor: Colors.black,
+                  elevation: 10,
+                  shadowColor: const Color(0xFFB388FF),
+                ),
+              ),
+              const SizedBox(width: 12),
+              ElevatedButton.icon(
+                onPressed: pickFolderAndReadRepo,
+                icon: const Icon(Icons.folder_open, color: Colors.black),
+                label: const Text('Select Existing Project', style: TextStyle(color: Colors.black, fontFamily: 'Orbitron')),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF00E5FF),
+                  foregroundColor: Colors.black,
+                  elevation: 10,
+                  shadowColor: const Color(0xFF00E5FF),
+                ),
+              ),
+            ],
+          ),
+          if (folderPath != null) ...[
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFF4CAF50).withOpacity(0.1),
+                border: Border.all(color: const Color(0xFF4CAF50)),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.check_circle, color: Color(0xFF4CAF50)),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Project loaded: ${p.basename(folderPath!)}',
+                      style: const TextStyle(
+                        color: Color(0xFF4CAF50),
+                        fontFamily: 'Orbitron',
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // Tab 2: Custom Feature Creator
+  Widget _buildCustomFeatureTab() {
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.build_circle, color: Color(0xFFFF6B35), size: 24),
+              const SizedBox(width: 10),
+              const Text(
+                'Create Custom Feature',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFFFF6B35),
+                  fontFamily: 'Orbitron',
+                  letterSpacing: 1.1,
+                ),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF4CAF50),
+                  borderRadius: BorderRadius.circular(6),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF4CAF50).withOpacity(0.3),
+                      blurRadius: 4,
+                    ),
+                  ],
+                ),
+                child: const Text(
+                  'AUTO-SAVE',
+                  style: TextStyle(
+                    color: Colors.black,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'Orbitron',
+                    fontSize: 8,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Custom Patch Name Input
+          TextField(
+            controller: _customPatchNameController,
+            style: const TextStyle(color: Colors.white, fontFamily: 'Orbitron'),
+            decoration: InputDecoration(
+              labelText: 'Custom Patch File Name',
+              labelStyle: const TextStyle(color: Color(0xFFFF6B35)),
+              hintText: 'e.g., my_custom_feature',
+              hintStyle: const TextStyle(color: Colors.white38),
+              border: const OutlineInputBorder(),
+              focusedBorder: const OutlineInputBorder(
+                borderSide: BorderSide(color: Color(0xFFFF6B35), width: 2),
+              ),
+              suffixIcon: _customPatchNameController.text.trim().isNotEmpty
+                  ? Icon(
+                _isPatchNameDuplicate(_customPatchNameController.text.trim())
+                    ? Icons.error
+                    : Icons.check_circle,
+                color: _isPatchNameDuplicate(_customPatchNameController.text.trim())
+                    ? Colors.red
+                    : const Color(0xFF4CAF50),
+              )
+                  : null,
+              helperText: _customPatchNameController.text.trim().isNotEmpty
+                  ? _isPatchNameDuplicate(_customPatchNameController.text.trim())
+                  ? '❌ This name already exists'
+                  : '✅ Name is available'
+                  : null,
+              helperStyle: TextStyle(
+                color: _customPatchNameController.text.trim().isNotEmpty
+                    ? _isPatchNameDuplicate(_customPatchNameController.text.trim())
+                    ? Colors.red
+                    : const Color(0xFF4CAF50)
+                    : Colors.white54,
+                fontSize: 12,
+                fontFamily: 'Orbitron',
+              ),
+            ),
+            onChanged: (value) {
+              setState(() {
+                // Trigger rebuild to update validation UI
+              });
+            },
+          ),
+          const SizedBox(height: 16),
+
+          // Patch entry form
+          Row(
+            children: [
+              Expanded(
+                flex: 2,
+                child: TextField(
+                  controller: _patchFolderController,
+                  style: const TextStyle(color: Colors.white, fontFamily: 'Orbitron'),
+                  decoration: const InputDecoration(
+                    labelText: 'Folder Name',
+                    labelStyle: TextStyle(color: Color(0xFFFF6B35)),
+                    hintText: 'e.g., lib/widgets',
+                    hintStyle: TextStyle(color: Colors.white38),
+                    border: OutlineInputBorder(),
+                    focusedBorder: OutlineInputBorder(
+                      borderSide: BorderSide(color: Color(0xFFFF6B35), width: 2),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                flex: 2,
+                child: TextField(
+                  controller: _patchFileNameController,
+                  style: const TextStyle(color: Colors.white, fontFamily: 'Orbitron'),
+                  decoration: const InputDecoration(
+                    labelText: 'File Name',
+                    labelStyle: TextStyle(color: Color(0xFFFF6B35)),
+                    hintText: 'e.g., custom_widget.dart',
+                    hintStyle: TextStyle(color: Colors.white38),
+                    border: OutlineInputBorder(),
+                    focusedBorder: OutlineInputBorder(
+                      borderSide: BorderSide(color: Color(0xFFFF6B35), width: 2),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          TextField(
+            controller: _patchFileContentController,
+            style: const TextStyle(color: Colors.white, fontFamily: 'FiraMono', fontSize: 13),
+            maxLines: 6,
+            decoration: const InputDecoration(
+              labelText: 'File Content',
+              labelStyle: TextStyle(color: Color(0xFFFF6B35)),
+              hintText: 'Enter your code here...',
+              hintStyle: TextStyle(color: Colors.white38),
+              border: OutlineInputBorder(),
+              focusedBorder: OutlineInputBorder(
+                borderSide: BorderSide(color: Color(0xFFFF6B35), width: 2),
+              ),
+              alignLabelWithHint: true,
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          Row(
+            children: [
+              ElevatedButton.icon(
+                onPressed: _addPatchEntry,
+                icon: const Icon(Icons.add, color: Colors.black),
+                label: const Text(
+                  'Add Entry',
+                  style: TextStyle(color: Colors.black, fontFamily: 'Orbitron'),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFFF6B35),
+                  foregroundColor: Colors.black,
+                  elevation: 10,
+                  shadowColor: const Color(0xFFFF6B35),
+                ),
+              ),
+              const SizedBox(width: 12),
+              if (patchEntries.isNotEmpty) ...[
+                ElevatedButton.icon(
+                  onPressed: (isCreatingPatch || !_isPatchFormValid()) ? null : createPatchFile,
+                  icon: isCreatingPatch
+                      ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                  )
+                      : const Icon(Icons.file_download, color: Colors.black),
+                  label: Text(
+                    isCreatingPatch ? 'Creating...' : 'Create Patch',
+                    style: const TextStyle(color: Colors.black, fontFamily: 'Orbitron'),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _isPatchFormValid()
+                        ? const Color(0xFF4CAF50)
+                        : Colors.grey,
+                    foregroundColor: Colors.black,
+                    elevation: _isPatchFormValid() ? 10 : 0,
+                    shadowColor: _isPatchFormValid()
+                        ? const Color(0xFF4CAF50)
+                        : Colors.transparent,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                ElevatedButton.icon(
+                  onPressed: () async {
+                    // Clear from SharedPreferences but keep for potential reuse
+                    if (folderPath != null) {
+                      await PatchPreferencesHelper.clearPatchEntries(folderPath!);
+                    }
+                    setState(() {
+                      patchEntries.clear();
+                      flutterCommands.clear(); // Clear Flutter commands too
+                      _customPatchNameController.clear();
+                      result += '✅ Cleared all patch entries, Flutter commands, and custom name from persistent storage.\n';
+                    });
+                  },
+                  icon: const Icon(Icons.clear_all, color: Colors.black),
+                  label: const Text(
+                    'Clear All',
+                    style: TextStyle(color: Colors.black, fontFamily: 'Orbitron'),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFF44336),
+                    foregroundColor: Colors.black,
+                    elevation: 10,
+                    shadowColor: const Color(0xFFF44336),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Validation Status
+          if (patchEntries.isNotEmpty) ...[
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.2),
+                border: Border.all(
+                  color: _isPatchFormValid()
+                      ? const Color(0xFF4CAF50)
+                      : const Color(0xFFFF6B35),
+                  width: 1,
+                ),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(
+                        _isPatchFormValid() ? Icons.check_circle : Icons.info,
+                        color: _isPatchFormValid()
+                            ? const Color(0xFF4CAF50)
+                            : const Color(0xFFFF6B35),
+                        size: 16,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Validation Status',
+                        style: TextStyle(
+                          color: _isPatchFormValid()
+                              ? const Color(0xFF4CAF50)
+                              : const Color(0xFFFF6B35),
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'Orbitron',
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  _buildValidationStatus(),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+
+          // Display current patch entries
+          Row(
+            children: [
+              const Icon(Icons.list_alt, color: Color(0xFFFF6B35), size: 20),
+              const SizedBox(width: 8),
+              Text(
+                'Patch Entries (${patchEntries.length})',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFFFF6B35),
+                  fontFamily: 'Orbitron',
+                ),
+              ),
+              const Spacer(),
+              if (folderPath != null)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF4CAF50).withOpacity(0.2),
+                    border: Border.all(color: const Color(0xFF4CAF50), width: 1),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: const Text(
+                    'Auto-saved & Persistent',
+                    style: TextStyle(
+                      color: Color(0xFF4CAF50),
+                      fontFamily: 'Orbitron',
+                      fontSize: 8,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          _buildPatchEntriesList(),
+          const SizedBox(height: 20),
+
+          // Flutter Commands Section
+          Row(
+            children: [
+              const Icon(Icons.play_circle_outline, color: Color(0xFF00E5FF), size: 20),
+              const SizedBox(width: 8),
+              Text(
+                'Flutter Commands (${flutterCommands.length})',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF00E5FF),
+                  fontFamily: 'Orbitron',
+                ),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF00E5FF).withOpacity(0.2),
+                  border: Border.all(color: const Color(0xFF00E5FF), width: 1),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: const Text(
+                  'Auto-execute',
+                  style: TextStyle(
+                    color: Color(0xFF00E5FF),
+                    fontFamily: 'Orbitron',
+                    fontSize: 8,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // Flutter Command Input
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _flutterCommandController,
+                  style: const TextStyle(color: Colors.white, fontFamily: 'Orbitron'),
+                  decoration: const InputDecoration(
+                    labelText: 'Flutter Command',
+                    labelStyle: TextStyle(color: Color(0xFF00E5FF)),
+                    hintText: 'e.g., pub get, build apk, run',
+                    hintStyle: TextStyle(color: Colors.white38),
+                    border: OutlineInputBorder(),
+                    focusedBorder: OutlineInputBorder(
+                      borderSide: BorderSide(color: Color(0xFF00E5FF), width: 2),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              ElevatedButton.icon(
+                onPressed: _addFlutterCommand,
+                icon: const Icon(Icons.add, color: Colors.black),
+                label: const Text(
+                  'Add Command',
+                  style: TextStyle(color: Colors.black, fontFamily: 'Orbitron'),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF00E5FF),
+                  foregroundColor: Colors.black,
+                  elevation: 10,
+                  shadowColor: const Color(0xFF00E5FF),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // Common Flutter Commands Suggestions
+          if (flutterCommands.isEmpty) ...[
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.1),
+                border: Border.all(color: const Color(0xFF00E5FF).withOpacity(0.3)),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.lightbulb_outline, color: Color(0xFF00E5FF), size: 16),
+                      const SizedBox(width: 8),
+                      const Text(
+                        'Common Flutter Commands',
+                        style: TextStyle(
+                          color: Color(0xFF00E5FF),
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'Orbitron',
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    children: getCommonFlutterCommands().map((command) {
+                      return InkWell(
+                        onTap: () => _addCommonFlutterCommand(command),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF00E5FF).withOpacity(0.2),
+                            border: Border.all(color: const Color(0xFF00E5FF).withOpacity(0.5)),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            command,
+                            style: const TextStyle(
+                              color: Color(0xFF00E5FF),
+                              fontSize: 10,
+                              fontFamily: 'Orbitron',
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+
+          // Flutter Commands List
+          _buildFlutterCommandsList(),
+        ],
+      ),
+    );
+  }
+
+  // Tab 3: Merge and Patches
+  Widget _buildMergeAndPatchesTab() {
+    if (folderPath == null || isCloning) {
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.folder_open,
+              size: 64,
+              color: Colors.white54,
+            ),
+            SizedBox(height: 16),
+            Text(
+              'Please select or create a project first',
+              style: TextStyle(
+                color: Colors.white54,
+                fontFamily: 'Orbitron',
+                fontSize: 16,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Merge & Patches',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFFB388FF),
+              fontFamily: 'Orbitron',
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // Merge Section
+          if (isLoading && mergeProgress > 0.0) ...[
+            Center(
+              child: Column(
+                children: [
+                  SizedBox(
+                    width: 260,
+                    child: LinearProgressIndicator(
+                      value: mergeProgress,
+                      minHeight: 10,
+                      backgroundColor: Colors.white24,
+                      valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFB388FF)),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    '${(mergeProgress * 100).toInt()}% ${mergeProgress < 1.0 ? 'completing' : 'completed'}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontFamily: 'Orbitron',
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+          ] else if (isLoading) ...[
+            const Center(child: CircularProgressIndicator()),
+            const SizedBox(height: 20),
+          ] else ...[
+            _buildBranchSection('List of widgets', widgetBranches, const Color(0xFF7C4DFF)),
+            _buildBranchSection('List of features', featureBranches, const Color(0xFF00E5FF)),
+            const SizedBox(height: 18),
+            Row(
+              children: [
+                ElevatedButton.icon(
+                  onPressed: (selectedSourceBranches.isEmpty || isLoading)
+                      ? null
+                      : mergeBranches,
+                  icon: isLoading
+                      ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFB388FF)),
+                  )
+                      : const Icon(Icons.merge_type, color: Colors.black),
+                  label: const Text('Apply in project', style: TextStyle(color: Colors.black, fontFamily: 'Orbitron')),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFB388FF),
+                    foregroundColor: Colors.black,
+                    elevation: 10,
+                    shadowColor: const Color(0xFFB388FF),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      selectedSourceBranches.clear();
+                    });
+                  },
+                  icon: const Icon(Icons.clear, color: Colors.black),
+                  label: const Text('Clear Selection', style: TextStyle(color: Colors.black, fontFamily: 'Orbitron')),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF00E5FF),
+                    foregroundColor: Colors.black,
+                    elevation: 10,
+                    shadowColor: const Color(0xFF00E5FF),
+                  ),
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 28),
+
+          // Saved Patch Files Section
+          Row(
+            children: [
+              const Icon(Icons.file_present, color: Color(0xFF4CAF50), size: 24),
+              const SizedBox(width: 10),
+              const Text(
+                'Saved Patch Files',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF4CAF50),
+                  fontFamily: 'Orbitron',
+                  letterSpacing: 1.1,
+                ),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF4CAF50),
+                  borderRadius: BorderRadius.circular(6),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF4CAF50).withOpacity(0.3),
+                      blurRadius: 4,
+                    ),
+                  ],
+                ),
+                child: Text(
+                  '${savedPatchFiles.length} FILES',
+                  style: const TextStyle(
+                    color: Colors.black,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'Orbitron',
+                    fontSize: 8,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          // Info about Flutter commands
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: const Color(0xFF00E5FF).withOpacity(0.1),
+              border: Border.all(color: const Color(0xFF00E5FF).withOpacity(0.3)),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.info_outline, color: Color(0xFF00E5FF), size: 16),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '💡 Patches with Flutter commands will automatically execute them when applied. Use the Refresh button if commands are not showing.',
+                    style: const TextStyle(
+                      color: Color(0xFF00E5FF),
+                      fontSize: 12,
+                      fontFamily: 'Orbitron',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+          _buildSavedPatchFilesList(),
+        ],
+      ),
+    );
   }
 }
