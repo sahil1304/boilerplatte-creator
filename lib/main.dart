@@ -10,6 +10,8 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'agentAIhelper/CodeInputField.dart';
+import 'agentAIhelper/ai_code_generator.dart';
 
 class FuturisticGlassPanel extends StatelessWidget {
   final Widget child;
@@ -708,6 +710,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> with TickerProvider
   final TextEditingController _patchFileContentController = TextEditingController();
   final TextEditingController _customPatchNameController = TextEditingController();
   final TextEditingController _flutterCommandController = TextEditingController(); // New controller for Flutter commands
+  final TextEditingController _aiPromptController = TextEditingController(); // AI prompt controller
 
   // List to store multiple patch file entries (now loaded from SharedPreferences)
   List<PatchFileEntry> patchEntries = [];
@@ -729,6 +732,10 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> with TickerProvider
   // For merge operations
   Set<String> selectedSourceBranches = <String>{};
   String destinationBranch = "main"; // Always set to "main"
+
+  // AI Code Generator
+  final AICodeGenerator _aiCodeGenerator = AICodeGenerator();
+  bool isGeneratingCode = false;
 
   @override
   void initState() {
@@ -797,6 +804,7 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> with TickerProvider
     _patchFileContentController.dispose();
     _customPatchNameController.dispose();
     _flutterCommandController.dispose();
+    _aiPromptController.dispose();
     super.dispose();
   }
 
@@ -1236,6 +1244,59 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> with TickerProvider
 
     // Immediately save to SharedPreferences for persistence
     await _savePatchEntryToPreferences();
+  }
+
+  // Method to generate code using AI
+  Future<void> _generateCodeWithAI() async {
+    if (_aiPromptController.text.trim().isEmpty) {
+      setState(() {
+        result += '\n⚠️ Please enter a prompt for AI code generation.\n';
+      });
+      return;
+    }
+
+    if (_patchFolderController.text.trim().isEmpty ||
+        _patchFileNameController.text.trim().isEmpty) {
+      setState(() {
+        result += '\n⚠️ Please fill in both Folder Name and File Name before generating code.\n';
+      });
+      return;
+    }
+
+    setState(() {
+      isGeneratingCode = true;
+      result += '\n--- AI Code Generation ---\n';
+      result += 'Prompt: ${_aiPromptController.text.trim()}\n';
+      result += 'Folder: ${_patchFolderController.text.trim()}\n';
+      result += 'File: ${_patchFileNameController.text.trim()}\n';
+      result += 'Generating code...\n';
+    });
+
+    try {
+      final result = await _aiCodeGenerator.generateCodeLocal(
+        userPrompt: _aiPromptController.text.trim(),
+        folderName: _patchFolderController.text.trim(),
+        fileName: _patchFileNameController.text.trim(),
+      );
+
+      setState(() {
+        if (result.success && result.code != null) {
+          _patchFileContentController.text = result.code!;
+          this.result += '✅ AI code generation successful!\n';
+          this.result += 'Model used: ${result.model}\n';
+          this.result += 'Code length: ${result.code!.length} characters\n';
+          this.result += 'Code has been loaded into the File Content field.\n';
+        } else {
+          this.result += '❌ AI code generation failed: ${result.error}\n';
+        }
+        isGeneratingCode = false;
+      });
+    } catch (e) {
+      setState(() {
+        result += '❌ Error during AI code generation: $e\n';
+        isGeneratingCode = false;
+      });
+    }
   }
 
   // Method to add Flutter command
@@ -2284,6 +2345,31 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> with TickerProvider
     ];
   }
 
+  // Helper method to build example prompt chips
+  Widget _buildExamplePromptChip(String prompt) {
+    return InkWell(
+      onTap: () {
+        _aiPromptController.text = prompt;
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: const Color(0xFF00E5FF).withOpacity(0.2),
+          border: Border.all(color: const Color(0xFF00E5FF).withOpacity(0.5)),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Text(
+          prompt,
+          style: const TextStyle(
+            color: Color(0xFF00E5FF),
+            fontSize: 10,
+            fontFamily: 'Orbitron',
+          ),
+        ),
+      ),
+    );
+  }
+
   // Method to add a common Flutter command
   void _addCommonFlutterCommand(String command) {
     setState(() {
@@ -2893,22 +2979,157 @@ class _RepoReaderScreenState extends State<RepoReaderScreen> with TickerProvider
         ),
         const SizedBox(height: 16),
 
-        TextField(
-          controller: _patchFileContentController,
-          style: const TextStyle(color: Colors.white, fontFamily: 'FiraMono', fontSize: 13),
-          maxLines: 6,
-          decoration: const InputDecoration(
-            labelText: 'File Content',
-            labelStyle: TextStyle(color: Color(0xFFFF6B35)),
-            hintText: 'Enter your code here...',
-            hintStyle: TextStyle(color: Colors.white38),
-            border: OutlineInputBorder(),
-            focusedBorder: OutlineInputBorder(
-              borderSide: BorderSide(color: Color(0xFFFF6B35), width: 2),
-            ),
-            alignLabelWithHint: true,
+        // AI Code Generation Section
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFF00E5FF).withOpacity(0.1),
+            border: Border.all(color: const Color(0xFF00E5FF).withOpacity(0.3)),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.auto_awesome, color: Color(0xFF00E5FF), size: 20),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'AI Code Generation',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF00E5FF),
+                      fontFamily: 'Orbitron',
+                    ),
+                  ),
+                  const Spacer(),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF00E5FF).withOpacity(0.2),
+                      border: Border.all(color: const Color(0xFF00E5FF), width: 1),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Text(
+                      'LOCAL AI',
+                      style: TextStyle(
+                        color: Color(0xFF00E5FF),
+                        fontFamily: 'Orbitron',
+                        fontSize: 8,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _aiPromptController,
+                style: const TextStyle(color: Colors.white, fontFamily: 'Orbitron'),
+                maxLines: 3,
+                decoration: const InputDecoration(
+                  labelText: 'AI Prompt',
+                  labelStyle: TextStyle(color: Color(0xFF00E5FF)),
+                  hintText: 'e.g., Create a login screen widget, Build a data model class, Generate a service class for API calls...',
+                  hintStyle: TextStyle(color: Colors.white38),
+                  border: OutlineInputBorder(),
+                  focusedBorder: OutlineInputBorder(
+                    borderSide: BorderSide(color: Color(0xFF00E5FF), width: 2),
+                  ),
+                  alignLabelWithHint: true,
+                ),
+              ),
+              const SizedBox(height: 8),
+              // Example prompts
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.1),
+                  border: Border.all(color: const Color(0xFF00E5FF).withOpacity(0.3)),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.lightbulb_outline, color: Color(0xFF00E5FF), size: 14),
+                        const SizedBox(width: 6),
+                        const Text(
+                          'Example Prompts:',
+                          style: TextStyle(
+                            color: Color(0xFF00E5FF),
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'Orbitron',
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: [
+                        _buildExamplePromptChip('Create a login screen widget'),
+                        _buildExamplePromptChip('Build a user data model class'),
+                        _buildExamplePromptChip('Generate a service for API calls'),
+                        _buildExamplePromptChip('Create a custom button widget'),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  ElevatedButton.icon(
+                    onPressed: isGeneratingCode ? null : _generateCodeWithAI,
+                    icon: isGeneratingCode
+                        ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black),
+                    )
+                        : const Icon(Icons.auto_awesome, color: Colors.black),
+                    label: Text(
+                      isGeneratingCode ? 'Generating...' : 'Generate Code',
+                      style: const TextStyle(color: Colors.black, fontFamily: 'Orbitron'),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF00E5FF),
+                      foregroundColor: Colors.black,
+                      elevation: 10,
+                      shadowColor: const Color(0xFF00E5FF),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  ElevatedButton.icon(
+                    onPressed: () {
+                      _aiPromptController.clear();
+                      _patchFileContentController.clear();
+                    },
+                    icon: const Icon(Icons.clear, color: Colors.black),
+                    label: const Text(
+                      'Clear',
+                      style: TextStyle(color: Colors.black, fontFamily: 'Orbitron'),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.grey,
+                      foregroundColor: Colors.black,
+                      elevation: 5,
+                      shadowColor: Colors.grey,
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
         ),
+        const SizedBox(height: 16),
+
+        CodeInputField(controller: _patchFileContentController),
         const SizedBox(height: 16),
 
         Row(
